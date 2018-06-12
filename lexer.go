@@ -19,9 +19,13 @@ const (
 	tsqlComma
 	tsqlAsterisk
 
+	tsqlIdentifier
+
 	tsqlSelect
 	tsqlFrom
-	tsqlIdentifier
+	tsqlInsert
+	tsqlCreate
+	tsqlTable
 )
 
 type item struct {
@@ -42,9 +46,7 @@ func (i item) String() string {
 
 const eof = -1
 
-type stateFn func(*lexer) stateFn
-
-type lexer struct {
+type tsqlLexer struct {
 	state stateFn
 	name  string
 	input string
@@ -54,12 +56,14 @@ type lexer struct {
 	items chan item
 }
 
-func lex(name string, input string) *lexer {
-	l := &lexer{
+type stateFn func(*tsqlLexer) stateFn
+
+func lex(name string, input string) *tsqlLexer {
+	l := &tsqlLexer{
 		state: lexTinySQL,
 		name:  name,
 		input: input,
-		items: make(chan item, 2),
+		items: make(chan item),
 	}
 
 	go l.run()
@@ -67,11 +71,7 @@ func lex(name string, input string) *lexer {
 	return l
 }
 
-func (l *lexer) nextItem() item {
-	return <-l.items
-}
-
-func lexWhiteSpace(l *lexer) stateFn {
+func lexWhiteSpace(l *tsqlLexer) stateFn {
 	for isWhiteSpace(l.peek()) {
 		l.next()
 	}
@@ -81,7 +81,7 @@ func lexWhiteSpace(l *lexer) stateFn {
 	return lexTinySQL
 }
 
-func lexAlphaNumeric(l *lexer) stateFn {
+func lexAlphaNumeric(l *tsqlLexer) stateFn {
 	for {
 		switch r := l.next(); {
 		case isAlphaNumeric(r):
@@ -103,7 +103,7 @@ func lexAlphaNumeric(l *lexer) stateFn {
 	}
 }
 
-func lexTinySQL(l *lexer) stateFn {
+func lexTinySQL(l *tsqlLexer) stateFn {
 	for {
 		r := l.peek()
 
@@ -125,13 +125,17 @@ func lexTinySQL(l *lexer) stateFn {
 	return nil
 }
 
-func (l *lexer) peek() rune {
+func (l *tsqlLexer) nextItem() item {
+	return <-l.items
+}
+
+func (l *tsqlLexer) peek() rune {
 	r := l.next()
 	l.backup()
 	return r
 }
 
-func (l *lexer) next() rune {
+func (l *tsqlLexer) next() rune {
 	if l.pos >= len(l.input) {
 		l.width = 0
 		return eof
@@ -145,7 +149,7 @@ func (l *lexer) next() rune {
 	return r
 }
 
-func (l *lexer) atTerminator() bool {
+func (l *tsqlLexer) atTerminator() bool {
 	r := l.peek()
 
 	if isWhiteSpace(r) || isEndOfLine(r) {
@@ -160,7 +164,7 @@ func (l *lexer) atTerminator() bool {
 	return false
 }
 
-func (l *lexer) errorf(format string, args ...interface{}) stateFn {
+func (l *tsqlLexer) errorf(format string, args ...interface{}) stateFn {
 	l.items <- item{
 		tsqlError,
 		fmt.Sprintf(format, args...),
@@ -170,16 +174,16 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 	return nil
 }
 
-func (l *lexer) backup() {
+func (l *tsqlLexer) backup() {
 	l.pos -= l.width
 }
 
-func (l *lexer) emit(token Token) {
+func (l *tsqlLexer) emit(token Token) {
 	l.items <- item{token, l.input[l.start:l.pos], l.start}
 	l.start = l.pos
 }
 
-func (l *lexer) run() {
+func (l *tsqlLexer) run() {
 	for state := lexTinySQL; state != nil; {
 		state = state(l)
 	}
