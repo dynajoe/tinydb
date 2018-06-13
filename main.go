@@ -12,7 +12,7 @@ func main() {
 	data, _ := ioutil.ReadFile("./data.sql")
 
 	if data != nil {
-		runLexer(string(data))
+		run(string(data))
 	} else {
 		onSemicolon := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 			for i := 0; i < len(data); i++ {
@@ -27,7 +27,7 @@ func main() {
 		scanner.Split(onSemicolon)
 
 		for scanner.Scan() {
-			runLexer(scanner.Text())
+			run(scanner.Text())
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -36,6 +36,10 @@ func main() {
 	}
 }
 
-func runLexer(text string) {
-	fmt.Println(Parse(text))
+func run(text string) {
+	result := Parse(text)
+
+	if result != nil {
+		ExecuteStatement(result)
+	}
 }
