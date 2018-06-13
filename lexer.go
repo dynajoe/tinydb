@@ -17,6 +17,8 @@ const (
 	tsqlWhiteSpace
 
 	tsqlComma
+	tsqlOpenParen
+	tsqlCloseParen
 	tsqlAsterisk
 
 	tsqlIdentifier
@@ -39,9 +41,9 @@ func (i item) String() string {
 	case i.token == tsqlEOF:
 		return "EOF"
 	case i.token == tsqlError:
-		return i.text
+		return "Error"
 	}
-	return fmt.Sprintf(" %d [%d] %s ", i.token, i.position, i.text)
+	return fmt.Sprintf("[%s]", i.text)
 }
 
 const eof = -1
@@ -94,6 +96,10 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 				l.emit(tsqlSelect)
 			} else if strings.ToUpper(value) == "FROM" {
 				l.emit(tsqlFrom)
+			} else if strings.ToUpper(value) == "TABLE" {
+				l.emit(tsqlTable)
+			} else if strings.ToUpper(value) == "CREATE" {
+				l.emit(tsqlCreate)
 			} else {
 				l.emit(tsqlIdentifier)
 			}
@@ -114,6 +120,18 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 		} else if r == '*' {
 			l.next()
 			l.emit(tsqlAsterisk)
+			return lexTinySQL
+		} else if r == '(' {
+			l.next()
+			l.emit(tsqlOpenParen)
+			return lexTinySQL
+		} else if r == ')' {
+			l.next()
+			l.emit(tsqlCloseParen)
+			return lexTinySQL
+		} else if r == ',' {
+			l.next()
+			l.emit(tsqlComma)
 			return lexTinySQL
 		} else if r == eof {
 			l.emit(tsqlEOF)
@@ -199,5 +217,5 @@ func isEndOfLine(r rune) bool {
 }
 
 func isWhiteSpace(r rune) bool {
-	return r == ' ' || r == '\n' || r == '\t'
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 }
