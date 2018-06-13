@@ -1,52 +1,330 @@
 package main
 
+import (
+	"fmt"
+)
+
 type Parser struct {
-	lexer     *tsqlLexer
-	input     string
-	items     []item
-	peekCount int
+	lexer    *tsqlLexer
+	input    string
+	items    []item
+	position int
 }
 
 // Statement - a TinySQL Statement
-type Statement interface{}
+type Statement interface {
+	iStatement()
+}
 
-type CreateStatement struct{}
-type InsertStatement struct{}
-type SelectStatement struct{}
+type DDLStatement interface {
+	iDDLStatement()
+	Statement
+}
+
+type InsertRows interface {
+	iInsertRows()
+}
+
+type CreateStatement interface {
+	iDDLStatement()
+	Statement
+}
+
+type InsertStatement interface {
+	iInsertRows()
+}
+
+type SelectStatement interface {
+	iSelectStatement()
+	Statement
+}
+
+type Values []string
+
+type Select struct {
+	From    string
+	Columns []string
+}
+
+type ColumnType int
+
+const (
+	colTypeInt ColumnType = iota
+	colTypeText
+)
+
+type ColumnDefinition struct {
+	Name string
+	Type string
+}
+
+type CreateTable struct {
+	Name    string
+	Columns []ColumnDefinition
+}
+
+func (Values) iInsertRows() {}
+
+func (*Select) iStatement()       {}
+func (*Select) iSelectStatement() {}
+
+func (*CreateTable) iStatement()       {}
+func (*CreateTable) iCreateStatement() {}
+func (*CreateTable) iDDLStatement()    {}
 
 // Parse - parses TinySql statements
-func Parse(sql string) (Statement, error) {
+func Parse(sql string) Statement {
 	parser := &Parser{
-		lexer:     lex("tsql", sql),
-		input:     sql,
-		items:     []item{},
-		peekCount: 0,
+		lexer:    lex("tsql", sql),
+		input:    sql,
+		items:    []item{},
+		position: 0,
 	}
 
 	return parser.parse()
 }
 
-func parseCreateStatement(lexer *tsqlLexer) (CreateStatement, error) {
-	return CreateStatement{}, nil
+func parseCreateTable(parser *Parser) DDLStatement {
+	createTableStatement := &CreateTable{}
+
+	result := parser.run(
+		all([]ItemPredicate{
+			requiredToken(tsqlCreate, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlTable, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlIdentifier, func(token []item) {
+				createTableStatement.Name = token[0].text
+			}),
+			optionalToken(tsqlWhiteSpace),
+			requiredToken(tsqlOpenParen, nil),
+			optionalToken(tsqlWhiteSpace),
+			separatedBy1(atom(tsqlComma),
+				all([]ItemPredicate{
+					optionalToken(tsqlWhiteSpace),
+					requiredToken(tsqlIdentifier, nil),
+					requiredToken(tsqlWhiteSpace, nil),
+					requiredToken(tsqlIdentifier, nil),
+					optionalToken(tsqlWhiteSpace),
+				}, func(tokens [][]item) {
+					columnName := tokens[1][0].text
+					columnType := tokens[3][0].text
+
+					createTableStatement.Columns = append(createTableStatement.Columns, ColumnDefinition{
+						Name: columnName,
+						Type: columnType,
+					})
+				})),
+			optionalToken(tsqlComma),
+			optionalToken(tsqlWhiteSpace),
+			requiredToken(tsqlCloseParen, nil),
+			optionalToken(tsqlWhiteSpace),
+		}, nil))
+
+	if result {
+		return createTableStatement
+	}
+
+	return nil
 }
 
-func parseSelectStatement(lexer *tsqlLexer) (SelectStatement, error) {
-	return SelectStatement{}, nil
+func atom(token Token) ItemPredicate {
+	return func(parser *Parser) bool {
+		return token == parser.next().token
+	}
 }
 
-func (parser *Parser) parse() (Statement, error) {
+func optionalToken(expected Token) ItemPredicate {
+	return func(parser *Parser) bool {
+		if parser.peek().token == expected {
+			parser.next()
+		}
+
+		return true
+	}
+}
+
+func requiredToken(expected Token, nodify Nodify) ItemPredicate {
+	return func(parser *Parser) bool {
+		if parser.peek().token == expected {
+			token := parser.next()
+
+			if nodify != nil {
+				nodify([]item{token})
+			}
+
+			return true
+		}
+
+		return false
+	}
+}
+
+func parseSelectStatement(parser *Parser) (*Select, error) {
+	startPos := parser.position
+
+	item := parser.nextNonSpace()
+	columns := parser.nextNonSpace()
+	from := parser.nextNonSpace()
+	table := parser.nextNonSpace()
+
+	if item.token == tsqlSelect && from.token == tsqlFrom && columns.token == tsqlAsterisk && table.token == tsqlIdentifier {
+		return &Select{
+			From:    table.text,
+			Columns: []string{columns.text},
+		}, nil
+	}
+
+	parser.position = startPos
+
 	return nil, nil
 }
 
-func (parser *Parser) peek() item {
-	parser.peekCount++
-	return parser.next()
+func (parser *Parser) parse() Statement {
+	createStatement := parseCreateTable(parser)
+
+	if createStatement != nil {
+		fmt.Println("Execute statement!")
+		return createStatement
+	}
+
+	return nil
 }
 
-func (parser *Parser) next() item {
-	item := parser.lexer.nextItem()
+func (parser *Parser) peek() item {
+	token := parser.next()
 
-	parser.items = append(parser.items, item)
+	fmt.Printf("peek \"%s\"", token)
 
-	return item
+	if parser.position >= 1 {
+		parser.backup()
+	}
+
+	return token
+}
+
+func (parser *Parser) backup() {
+	if parser.position > 0 {
+		parser.position--
+	} else {
+		panic("Attempting to back up before any tokens")
+	}
+}
+
+func separatedBy1(separator ItemPredicate, predicate ItemPredicate) ItemPredicate {
+	return func(parser *Parser) bool {
+		if predicate(parser) {
+			return separator(parser) && predicate(parser)
+		}
+
+		return false
+	}
+}
+
+func oneOrMore(predicate ItemPredicate) ItemPredicate {
+	return func(parser *Parser) bool {
+		if !predicate(parser) {
+			return false
+		}
+
+		return zeroOrMore(predicate)(parser)
+	}
+}
+
+func zeroOrMore(predicate ItemPredicate) ItemPredicate {
+	return func(parser *Parser) bool {
+		for {
+			if !predicate(parser) {
+				break
+			}
+		}
+
+		return true
+	}
+}
+
+func all(predicates []ItemPredicate, nodify NodifyMany) ItemPredicate {
+	return func(parser *Parser) bool {
+		start := parser.position
+		matchesAll := true
+		tokens := [][]item{}
+
+		for i := 0; i < len(predicates); i++ {
+			before := parser.position
+
+			if !predicates[i](parser) {
+				matchesAll = false
+				break
+			}
+
+			tokens = append(tokens, parser.items[before:parser.position])
+		}
+
+		if !matchesAll {
+			parser.position = start
+		} else if nodify != nil {
+			nodify(tokens)
+		}
+
+		return matchesAll
+	}
+}
+
+func (parser *Parser) run(predicate ItemPredicate) bool {
+	start := parser.position
+
+	if !predicate(parser) {
+		parser.position = start
+		return false
+	}
+
+	return true
+}
+
+func (parser *Parser) next() (token item) {
+	if parser.position >= len(parser.items) {
+		token = parser.lexer.nextItem()
+		parser.items = append(parser.items, token)
+	} else {
+		token = parser.items[parser.position]
+	}
+
+	parser.position++
+	fmt.Println(token)
+
+	return token
+}
+
+func (parser *Parser) nextNonSpace() (token item) {
+	for {
+		token = parser.next()
+
+		if token.token != tsqlWhiteSpace {
+			break
+		}
+	}
+
+	return token
+}
+
+func (parser *Parser) skipWhiteSpace() {
+	for parser.peek().token == tsqlWhiteSpace {
+		parser.next()
+	}
+}
+
+type Node struct {
+	Name  string
+	Value string
+}
+
+type ItemPredicate func(*Parser) bool
+
+type Statementify func(tokens []item) Statement
+
+type Nodify func(tokens []item)
+type NodifyMany func(tokens [][]item)
+type ParseResult struct {
+	statement Statement
+	Error     error
 }
