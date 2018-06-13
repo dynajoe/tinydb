@@ -31,7 +31,8 @@ type CreateStatement interface {
 }
 
 type InsertStatement interface {
-	iInsertRows()
+	iInsertStatement()
+	Statement
 }
 
 type SelectStatement interface {
@@ -39,7 +40,7 @@ type SelectStatement interface {
 	Statement
 }
 
-type Values []string
+type Values map[string]string
 
 type Select struct {
 	From    string
@@ -63,10 +64,16 @@ type CreateTable struct {
 	Columns []ColumnDefinition
 }
 
-func (Values) iInsertRows() {}
+type Insert struct {
+	Table  string
+	Values Values
+}
 
 func (*Select) iStatement()       {}
 func (*Select) iSelectStatement() {}
+
+func (*Insert) iStatement()       {}
+func (*Insert) iInsertStatement() {}
 
 func (*CreateTable) iStatement()       {}
 func (*CreateTable) iCreateStatement() {}
@@ -128,6 +135,78 @@ func parseCreateTable(parser *Parser) DDLStatement {
 	return nil
 }
 
+func parseInsert(parser *Parser) InsertStatement {
+	insertTableStatement := &Insert{}
+
+	columns := []string{}
+	values := []string{}
+
+	result := parser.run(
+		all([]ItemPredicate{
+			requiredToken(tsqlInsert, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlInto, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlIdentifier, func(token []item) {
+				insertTableStatement.Table = token[0].text
+			}),
+			optionalToken(tsqlWhiteSpace),
+
+			requiredToken(tsqlOpenParen, nil),
+			separatedBy1(atom(tsqlComma),
+				all([]ItemPredicate{
+					optionalToken(tsqlWhiteSpace),
+					requiredToken(tsqlIdentifier, func(token []item) {
+						columns = append(columns, token[0].text)
+					}),
+				}, nil),
+			),
+			optionalToken(tsqlWhiteSpace),
+			requiredToken(tsqlCloseParen, nil),
+
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlValues, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+
+			requiredToken(tsqlOpenParen, nil),
+			separatedBy1(atom(tsqlComma),
+				all([]ItemPredicate{
+					optionalToken(tsqlWhiteSpace),
+					requiredToken(tsqlIdentifier, func(token []item) {
+						values = append(values, token[0].text)
+					}),
+				}, nil),
+			),
+			optionalToken(tsqlWhiteSpace),
+			requiredToken(tsqlCloseParen, nil),
+		}, nil))
+
+	if !result {
+		return nil
+	}
+
+	// if columns and values are not of same length or are empty blow up
+	// create map
+	numColumns := len(columns)
+	numValues := len(values)
+
+	if numColumns != numValues {
+		return nil
+	}
+
+	insertTableStatement.Values = make(map[string]string)
+
+	for i := 0; i < numColumns; i++ {
+		insertTableStatement.Values[columns[i]] = values[i]
+	}
+
+	return insertTableStatement
+}
+
+func parseSelect(parser *Parser) SelectStatement {
+
+}
+
 func atom(token Token) ItemPredicate {
 	return func(parser *Parser) bool {
 		return token == parser.next().token
@@ -160,32 +239,15 @@ func requiredToken(expected Token, nodify Nodify) ItemPredicate {
 	}
 }
 
-func parseSelectStatement(parser *Parser) (*Select, error) {
-	startPos := parser.position
-
-	item := parser.nextNonSpace()
-	columns := parser.nextNonSpace()
-	from := parser.nextNonSpace()
-	table := parser.nextNonSpace()
-
-	if item.token == tsqlSelect && from.token == tsqlFrom && columns.token == tsqlAsterisk && table.token == tsqlIdentifier {
-		return &Select{
-			From:    table.text,
-			Columns: []string{columns.text},
-		}, nil
+func (parser *Parser) parse() Statement {
+	if createStatement := parseCreateTable(parser); createStatement != nil {
+		fmt.Println("Create statement!")
+		return createStatement
 	}
 
-	parser.position = startPos
-
-	return nil, nil
-}
-
-func (parser *Parser) parse() Statement {
-	createStatement := parseCreateTable(parser)
-
-	if createStatement != nil {
-		fmt.Println("Execute statement!")
-		return createStatement
+	if insertStatement := parseInsert(parser); insertStatement != nil {
+		fmt.Println("Insert statement!")
+		return insertStatement
 	}
 
 	return nil
