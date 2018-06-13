@@ -25,9 +25,11 @@ const (
 
 	tsqlSelect
 	tsqlFrom
-	tsqlInsert
 	tsqlCreate
+	tsqlInsert
+	tsqlInto
 	tsqlTable
+	tsqlValues
 )
 
 type item struct {
@@ -100,6 +102,12 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 				l.emit(tsqlTable)
 			} else if strings.ToUpper(value) == "CREATE" {
 				l.emit(tsqlCreate)
+			} else if strings.ToUpper(value) == "INSERT" {
+				l.emit(tsqlInsert)
+			} else if strings.ToUpper(value) == "VALUES" {
+				l.emit(tsqlValues)
+			} else if strings.ToUpper(value) == "INTO" {
+				l.emit(tsqlInto)
 			} else {
 				l.emit(tsqlIdentifier)
 			}
@@ -110,34 +118,32 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 }
 
 func lexTinySQL(l *tsqlLexer) stateFn {
-	for {
-		r := l.peek()
+	r := l.peek()
 
-		if isWhiteSpace(r) {
-			return lexWhiteSpace(l)
-		} else if isAlphaNumeric(r) {
-			return lexAlphaNumeric(l)
-		} else if r == '*' {
-			l.next()
-			l.emit(tsqlAsterisk)
-			return lexTinySQL
-		} else if r == '(' {
-			l.next()
-			l.emit(tsqlOpenParen)
-			return lexTinySQL
-		} else if r == ')' {
-			l.next()
-			l.emit(tsqlCloseParen)
-			return lexTinySQL
-		} else if r == ',' {
-			l.next()
-			l.emit(tsqlComma)
-			return lexTinySQL
-		} else if r == eof {
-			l.emit(tsqlEOF)
-		} else {
-			return l.errorf("Unexpected token %s", r)
-		}
+	if isWhiteSpace(r) {
+		return lexWhiteSpace(l)
+	} else if isAlphaNumeric(r) {
+		return lexAlphaNumeric(l)
+	} else if r == '*' {
+		l.next()
+		l.emit(tsqlAsterisk)
+		return lexTinySQL
+	} else if r == '(' {
+		l.next()
+		l.emit(tsqlOpenParen)
+		return lexTinySQL
+	} else if r == ')' {
+		l.next()
+		l.emit(tsqlCloseParen)
+		return lexTinySQL
+	} else if r == ',' {
+		l.next()
+		l.emit(tsqlComma)
+		return lexTinySQL
+	} else if r == eof {
+		l.emit(tsqlEOF)
+	} else {
+		return l.errorf("Unexpected token %s", r)
 	}
 
 	return nil
