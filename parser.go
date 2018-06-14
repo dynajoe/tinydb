@@ -45,6 +45,42 @@ type Values map[string]string
 type Select struct {
 	From    string
 	Columns []string
+	Filter  Expression
+}
+
+type Operator interface {
+	iOperator()
+}
+
+type BinaryOperator interface {
+	iBinaryOperator()
+	Operator
+	Expression
+}
+
+type UnaryOperator interface {
+	iUnaryOperator()
+	Operator
+	Expression
+}
+
+type EqualsOperator struct {
+	Left  Expression
+	Right Expression
+}
+
+type Expression interface {
+	iExpression()
+	reduce() Literal
+}
+
+type Literal struct {
+	Value string
+	Expression
+}
+
+type ColumnReference struct {
+	Name string
 }
 
 type ColumnType int
@@ -79,6 +115,28 @@ func (*CreateTable) iStatement()       {}
 func (*CreateTable) iCreateStatement() {}
 func (*CreateTable) iDDLStatement()    {}
 
+func (Literal) iExpression() {}
+
+func (EqualsOperator) iExpression()     {}
+func (EqualsOperator) iOperator()       {}
+func (EqualsOperator) iBinaryOperator() {}
+
+func (expr EqualsOperator) reduce() Literal {
+	if expr.Left.reduce().Value == expr.Right.reduce().Value {
+		return Literal{
+			Value: "true",
+		}
+	}
+
+	return Literal{
+		Value: "false",
+	}
+}
+
+func (expr Literal) reduce() Literal {
+	return expr
+}
+
 // Parse - parses TinySql statements
 func Parse(sql string) Statement {
 	parser := &Parser{
@@ -87,6 +145,8 @@ func Parse(sql string) Statement {
 		items:    []item{},
 		position: 0,
 	}
+
+	fmt.Println(sql)
 
 	return parser.parse()
 }
@@ -203,8 +263,95 @@ func parseInsert(parser *Parser) InsertStatement {
 	return insertTableStatement
 }
 
-func parseSelect(parser *Parser) SelectStatement {
+func parseExpression(nodify NodifyExpression) ItemPredicate {
+	return oneOf([]ItemPredicate{
+		parseLiteral(nodify),
+		lazy(func() ItemPredicate { return parseEqualsOperator(nodify) }),
+	}, nil)
+}
 
+func parseLiteral(nodify NodifyExpression) ItemPredicate {
+	return requiredToken(tsqlIdentifier, func(token []item) {
+		nodify(Literal{
+			Value: token[0].text,
+		})
+	})
+}
+
+func parseBinaryOperator(nodify NodifyExpression) ItemPredicate {
+	return oneOf([]ItemPredicate{
+		parseEqualsOperator(nodify),
+	}, nil)
+}
+
+func lazy(x func() ItemPredicate) ItemPredicate {
+	return func(parser *Parser) bool {
+		return x()(parser)
+	}
+}
+
+func parseEqualsOperator(nodify NodifyExpression) ItemPredicate {
+	equalsOp := EqualsOperator{}
+
+	return all([]ItemPredicate{
+		lazy(func() ItemPredicate { return parseExpression(func(left Expression) { equalsOp.Left = left }) }),
+		requiredToken(tsqlWhiteSpace, nil),
+		equal(),
+		requiredToken(tsqlWhiteSpace, nil),
+		lazy(func() ItemPredicate { return parseExpression(func(right Expression) { equalsOp.Right = right }) }),
+	}, func(tokens [][]item) { nodify(equalsOp) })
+}
+
+func parseSelect(parser *Parser) SelectStatement {
+	selectStatement := &Select{}
+	whereClause :=
+		all([]ItemPredicate{
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlWhere, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			separatedBy1(
+				all([]ItemPredicate{
+					requiredToken(tsqlWhiteSpace, nil),
+					atom(tsqlAnd),
+					requiredToken(tsqlWhiteSpace, nil),
+				}, nil),
+				parseBinaryOperator(func(expr Expression) {
+					selectStatement.Filter = expr
+				}),
+			),
+		}, nil)
+
+	result := parser.run(
+		all([]ItemPredicate{
+			requiredToken(tsqlSelect, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			separatedBy1(atom(tsqlComma),
+				all([]ItemPredicate{
+					optionalToken(tsqlWhiteSpace),
+					oneOf([]ItemPredicate{
+						requiredToken(tsqlIdentifier, nil),
+						requiredToken(tsqlAsterisk, nil),
+					}, func(token []item) {
+						selectStatement.Columns = append(selectStatement.Columns, token[0].text)
+					}),
+				}, nil),
+			),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlFrom, nil),
+			requiredToken(tsqlWhiteSpace, nil),
+			requiredToken(tsqlIdentifier, func(token []item) {
+				selectStatement.From = token[0].text
+			}),
+			optional(whereClause, nil),
+			requiredToken(tsqlEOF, nil),
+		}, nil),
+	)
+
+	if result {
+		return selectStatement
+	}
+
+	return nil
 }
 
 func atom(token Token) ItemPredicate {
@@ -220,6 +367,18 @@ func optionalToken(expected Token) ItemPredicate {
 		}
 
 		return true
+	}
+}
+
+func equal() ItemPredicate {
+	return func(parser *Parser) bool {
+		fmt.Printf("Parser items %s", parser.items)
+		if parser.peek().token == tsqlEquals {
+			parser.next()
+			return true
+		}
+
+		return false
 	}
 }
 
@@ -248,6 +407,11 @@ func (parser *Parser) parse() Statement {
 	if insertStatement := parseInsert(parser); insertStatement != nil {
 		fmt.Println("Insert statement!")
 		return insertStatement
+	}
+
+	if selectStatement := parseSelect(parser); selectStatement != nil {
+		fmt.Println("Select statement!")
+		return selectStatement
 	}
 
 	return nil
@@ -332,6 +496,47 @@ func all(predicates []ItemPredicate, nodify NodifyMany) ItemPredicate {
 	}
 }
 
+func oneOf(predicate []ItemPredicate, nodify Nodify) ItemPredicate {
+	return func(parser *Parser) bool {
+		start := parser.position
+
+		for _, predicate := range predicate {
+			if predicate(parser) {
+				token := parser.items[start:parser.position]
+
+				if nodify != nil {
+					nodify(token)
+				}
+
+				return true
+			}
+
+			parser.position = start
+		}
+
+		return false
+	}
+}
+
+func optional(predicate ItemPredicate, nodify Nodify) ItemPredicate {
+	return func(parser *Parser) bool {
+		start := parser.position
+
+		if predicate(parser) {
+			token := parser.items[start:parser.position]
+
+			if nodify != nil {
+				nodify(token)
+			}
+
+			return true
+		}
+
+		parser.position = start
+		return true
+	}
+}
+
 func (parser *Parser) run(predicate ItemPredicate) bool {
 	start := parser.position
 
@@ -390,3 +595,5 @@ type ParseResult struct {
 	statement Statement
 	Error     error
 }
+
+type NodifyExpression func(expr Expression)

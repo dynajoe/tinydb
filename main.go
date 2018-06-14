@@ -3,36 +3,43 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 func main() {
-	scanner := bufio.NewScanner(bufio.NewReader(os.Stdin))
 	data, _ := ioutil.ReadFile("./data.sql")
 
+	var reader io.Reader
+
 	if data != nil {
-		run(string(data))
+		reader = strings.NewReader(string(data))
 	} else {
-		onSemicolon := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-			for i := 0; i < len(data); i++ {
-				if data[i] == ';' {
-					return i + 1, data[:i], nil
-				}
+		reader = bufio.NewReader(os.Stdin)
+	}
+
+	scanner := bufio.NewScanner(reader)
+
+	onSemicolon := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+		for i := 0; i < len(data); i++ {
+			if data[i] == ';' {
+				return i + 1, data[:i], nil
 			}
-
-			return 0, data, bufio.ErrFinalToken
 		}
 
-		scanner.Split(onSemicolon)
+		return 0, data, bufio.ErrFinalToken
+	}
 
-		for scanner.Scan() {
-			run(scanner.Text())
-		}
+	scanner.Split(onSemicolon)
 
-		if err := scanner.Err(); err != nil {
-			fmt.Fprintln(os.Stderr, "reading input:", err)
-		}
+	for scanner.Scan() {
+		run(scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "reading input:", err)
 	}
 }
 

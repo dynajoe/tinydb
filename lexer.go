@@ -20,11 +20,15 @@ const (
 	tsqlOpenParen
 	tsqlCloseParen
 	tsqlAsterisk
+	tsqlEquals
 
 	tsqlIdentifier
 
 	tsqlSelect
 	tsqlFrom
+	tsqlWhere
+	tsqlAnd
+	tsqlOr
 	tsqlCreate
 	tsqlInsert
 	tsqlInto
@@ -100,6 +104,12 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 				l.emit(tsqlFrom)
 			} else if strings.ToUpper(value) == "TABLE" {
 				l.emit(tsqlTable)
+			} else if strings.ToUpper(value) == "WHERE" {
+				l.emit(tsqlWhere)
+			} else if strings.ToUpper(value) == "AND" {
+				l.emit(tsqlAnd)
+			} else if strings.ToUpper(value) == "OR" {
+				l.emit(tsqlOr)
 			} else if strings.ToUpper(value) == "CREATE" {
 				l.emit(tsqlCreate)
 			} else if strings.ToUpper(value) == "INSERT" {
@@ -127,6 +137,10 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 	} else if r == '*' {
 		l.next()
 		l.emit(tsqlAsterisk)
+		return lexTinySQL
+	} else if r == '=' {
+		l.next()
+		l.emit(tsqlEquals)
 		return lexTinySQL
 	} else if r == '(' {
 		l.next()
