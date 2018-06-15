@@ -162,13 +162,10 @@ func lexSymbol(l *tsqlLexer) stateFn {
 		l.next()
 		l.emit(tsqlEquals)
 	case '!':
-		l.next()
-
-		if l.next() == '=' {
+		if l.peek2() == '=' {
+			l.next()
+			l.next()
 			l.emit(tsqlNotEq)
-		} else {
-			l.backup()
-			l.emit(tsqlEquals)
 		}
 	case '*':
 		l.next()
@@ -242,6 +239,18 @@ func (l *tsqlLexer) nextItem() item {
 func (l *tsqlLexer) peek() rune {
 	r := l.next()
 	l.backup()
+	return r
+}
+
+func (l *tsqlLexer) peek2() rune {
+	if l.peek() == eof {
+		return eof
+	}
+
+	l.next()
+	r := l.peek()
+	l.backup()
+
 	return r
 }
 
