@@ -20,20 +20,31 @@ const (
 	tsqlOpenParen
 	tsqlCloseParen
 	tsqlAsterisk
-	tsqlEquals
 
 	tsqlIdentifier
 
 	tsqlSelect
 	tsqlFrom
 	tsqlWhere
-	tsqlAnd
-	tsqlOr
+
 	tsqlCreate
 	tsqlInsert
 	tsqlInto
 	tsqlTable
 	tsqlValues
+
+	tsqlEquals
+	tsqlGt
+	tsqlLt
+	tsqlGte
+	tsqlLte
+	tsqlNotEq
+
+	tsqlNot
+	tsqlAnd
+	tsqlOr
+
+	tsqlString
 )
 
 type item struct {
@@ -127,35 +138,96 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 	}
 }
 
+func lexSymbol(l *tsqlLexer) stateFn {
+	switch r := l.peek(); r {
+	case '>':
+		l.next()
+
+		if l.next() == '=' {
+			l.emit(tsqlGte)
+		} else {
+			l.backup()
+			l.emit(tsqlGt)
+		}
+	case '<':
+		l.next()
+
+		if l.next() == '=' {
+			l.emit(tsqlLte)
+		} else {
+			l.backup()
+			l.emit(tsqlLt)
+		}
+	case '=':
+		l.next()
+		l.emit(tsqlEquals)
+	case '!':
+		l.next()
+
+		if l.next() == '=' {
+			l.emit(tsqlNotEq)
+		} else {
+			l.backup()
+			l.emit(tsqlEquals)
+		}
+	case '*':
+		l.next()
+		l.emit(tsqlAsterisk)
+	case '(':
+		l.next()
+		l.emit(tsqlOpenParen)
+	case ')':
+		l.next()
+		l.emit(tsqlCloseParen)
+	case ',':
+		l.next()
+		l.emit(tsqlComma)
+	default:
+		return nil
+	}
+
+	return lexTinySQL
+}
+
+func lexString(l *tsqlLexer) stateFn {
+	if p := l.peek(); p == '\'' {
+		l.next()
+
+		var previous rune
+		var current rune
+
+		for {
+			current = l.next()
+
+			if current == '\'' && previous != '\'' {
+				l.emit(tsqlString)
+				break
+			} else if current == eof {
+				panic("Non terminated string token!")
+			}
+
+			previous = current
+		}
+
+		return lexTinySQL
+	}
+
+	return nil
+}
+
 func lexTinySQL(l *tsqlLexer) stateFn {
 	r := l.peek()
 
-	if isWhiteSpace(r) {
+	if r == eof {
+		l.emit(tsqlEOF)
+	} else if isWhiteSpace(r) {
 		return lexWhiteSpace(l)
 	} else if isAlphaNumeric(r) {
 		return lexAlphaNumeric(l)
-	} else if r == '*' {
-		l.next()
-		l.emit(tsqlAsterisk)
-		return lexTinySQL
-	} else if r == '=' {
-		l.next()
-		l.emit(tsqlEquals)
-		return lexTinySQL
-	} else if r == '(' {
-		l.next()
-		l.emit(tsqlOpenParen)
-		return lexTinySQL
-	} else if r == ')' {
-		l.next()
-		l.emit(tsqlCloseParen)
-		return lexTinySQL
-	} else if r == ',' {
-		l.next()
-		l.emit(tsqlComma)
-		return lexTinySQL
-	} else if r == eof {
-		l.emit(tsqlEOF)
+	} else if resume := lexSymbol(l); resume != nil {
+		return resume
+	} else if resume := lexString(l); resume != nil {
+		return resume
 	} else {
 		return l.errorf("Unexpected token %s", r)
 	}
