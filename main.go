@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	data, _ := ioutil.ReadFile("./data.sql")
+	data, _ := ioutil.ReadFile("./sample_query.sql")
 
 	var reader io.Reader
 
@@ -44,7 +44,7 @@ func main() {
 }
 
 func run(text string) {
-	result := Parse(text)
+	result := Parse(strings.TrimSpace(text))
 
 	if result != nil {
 		ExecuteStatement(result)
