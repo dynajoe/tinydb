@@ -66,13 +66,14 @@ func (i item) String() string {
 const eof = -1
 
 type tsqlLexer struct {
-	state stateFn
-	name  string
-	input string
-	start int
-	pos   int
-	width int
-	items chan item
+	state     stateFn
+	name      string
+	input     string
+	remaining string
+	start     int
+	pos       int
+	width     int
+	items     chan item
 }
 
 type stateFn func(*tsqlLexer) stateFn
@@ -102,39 +103,41 @@ func lexWhiteSpace(l *tsqlLexer) stateFn {
 
 func lexAlphaNumeric(l *tsqlLexer) stateFn {
 	for {
-		switch r := l.next(); {
-		case isAlphaNumeric(r):
-		default:
-			l.backup()
+		r := l.next()
 
-			value := l.input[l.start:l.pos]
-
-			if strings.ToUpper(value) == "SELECT" {
-				l.emit(tsqlSelect)
-			} else if strings.ToUpper(value) == "FROM" {
-				l.emit(tsqlFrom)
-			} else if strings.ToUpper(value) == "TABLE" {
-				l.emit(tsqlTable)
-			} else if strings.ToUpper(value) == "WHERE" {
-				l.emit(tsqlWhere)
-			} else if strings.ToUpper(value) == "AND" {
-				l.emit(tsqlAnd)
-			} else if strings.ToUpper(value) == "OR" {
-				l.emit(tsqlOr)
-			} else if strings.ToUpper(value) == "CREATE" {
-				l.emit(tsqlCreate)
-			} else if strings.ToUpper(value) == "INSERT" {
-				l.emit(tsqlInsert)
-			} else if strings.ToUpper(value) == "VALUES" {
-				l.emit(tsqlValues)
-			} else if strings.ToUpper(value) == "INTO" {
-				l.emit(tsqlInto)
-			} else {
-				l.emit(tsqlIdentifier)
-			}
-
-			return lexTinySQL
+		if isAlphaNumeric(r) {
+			continue
 		}
+
+		l.backup()
+
+		value := l.input[l.start:l.pos]
+
+		if strings.ToUpper(value) == "SELECT" {
+			l.emit(tsqlSelect)
+		} else if strings.ToUpper(value) == "FROM" {
+			l.emit(tsqlFrom)
+		} else if strings.ToUpper(value) == "TABLE" {
+			l.emit(tsqlTable)
+		} else if strings.ToUpper(value) == "WHERE" {
+			l.emit(tsqlWhere)
+		} else if strings.ToUpper(value) == "AND" {
+			l.emit(tsqlAnd)
+		} else if strings.ToUpper(value) == "OR" {
+			l.emit(tsqlOr)
+		} else if strings.ToUpper(value) == "CREATE" {
+			l.emit(tsqlCreate)
+		} else if strings.ToUpper(value) == "INSERT" {
+			l.emit(tsqlInsert)
+		} else if strings.ToUpper(value) == "VALUES" {
+			l.emit(tsqlValues)
+		} else if strings.ToUpper(value) == "INTO" {
+			l.emit(tsqlInto)
+		} else {
+			l.emit(tsqlIdentifier)
+		}
+
+		return lexTinySQL
 	}
 }
 
@@ -299,6 +302,7 @@ func (l *tsqlLexer) backup() {
 
 func (l *tsqlLexer) emit(token Token) {
 	l.items <- item{token, l.input[l.start:l.pos], l.start}
+	l.remaining = l.input[l.pos:]
 	l.start = l.pos
 }
 

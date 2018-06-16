@@ -325,7 +325,12 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 		all([]Parser{
 			requiredToken(tsqlSelect, nil),
 			requiredToken(tsqlWhiteSpace, nil),
-			separatedBy1(atom(tsqlComma),
+			separatedBy1(
+				all([]Parser{
+					optionalToken(tsqlWhiteSpace),
+					atom(tsqlComma),
+					optionalToken(tsqlWhiteSpace),
+				}, nil),
 				all([]Parser{
 					optionalToken(tsqlWhiteSpace),
 					oneOf([]Parser{
@@ -336,13 +341,14 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 					}),
 				}, nil),
 			),
-			requiredToken(tsqlWhiteSpace, nil),
+			optionalToken(tsqlWhiteSpace),
 			requiredToken(tsqlFrom, nil),
 			requiredToken(tsqlWhiteSpace, nil),
 			requiredToken(tsqlIdentifier, func(token []item) {
 				selectStatement.From = token[0].text
 			}),
 			optional(whereClause, nil),
+			optionalToken(tsqlWhiteSpace),
 			requiredToken(tsqlEOF, nil),
 		}, nil),
 	)
@@ -372,7 +378,6 @@ func optionalToken(expected Token) Parser {
 
 func equal() Parser {
 	return func(scanner *TSQLScanner) bool {
-		fmt.Printf("Parser items %s", scanner.items)
 		if scanner.peek().token == tsqlEquals {
 			scanner.next()
 			return true
@@ -420,8 +425,6 @@ func (scanner *TSQLScanner) parse() Statement {
 func (scanner *TSQLScanner) peek() item {
 	token := scanner.next()
 
-	fmt.Printf("peek \"%s\"", token)
-
 	if scanner.position >= 1 {
 		scanner.backup()
 	}
@@ -440,7 +443,15 @@ func (scanner *TSQLScanner) backup() {
 func separatedBy1(separator Parser, parser Parser) Parser {
 	return func(scanner *TSQLScanner) bool {
 		if parser(scanner) {
-			return separator(scanner) && parser(scanner)
+			for {
+				if separator(scanner) {
+					if !parser(scanner) {
+						return false
+					}
+				} else {
+					return true
+				}
+			}
 		}
 
 		return false
@@ -469,16 +480,16 @@ func zeroOrMore(parser Parser) Parser {
 	}
 }
 
-func all(predicates []Parser, nodify NodifyMany) Parser {
+func all(parsers []Parser, nodify NodifyMany) Parser {
 	return func(scanner *TSQLScanner) bool {
 		start := scanner.position
 		matchesAll := true
 		tokens := [][]item{}
 
-		for i := 0; i < len(predicates); i++ {
+		for _, parser := range parsers {
 			before := scanner.position
 
-			if !predicates[i](scanner) {
+			if !parser(scanner) {
 				matchesAll = false
 				break
 			}
@@ -557,7 +568,6 @@ func (scanner *TSQLScanner) next() (token item) {
 	}
 
 	scanner.position++
-	fmt.Println(token)
 
 	return token
 }
