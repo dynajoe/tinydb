@@ -49,6 +49,7 @@ const (
 	tsqlDivide
 
 	tsqlString
+	tsqlNumber
 )
 
 type item struct {
@@ -118,6 +119,16 @@ func lexWhiteSpace(l *tsqlLexer) stateFn {
 	}
 
 	l.emit(tsqlWhiteSpace)
+
+	return lexTinySQL
+}
+
+func lexNumber(l *tsqlLexer) stateFn {
+	for unicode.IsDigit(l.peek()) {
+		l.next()
+	}
+
+	l.emit(tsqlNumber)
 
 	return lexTinySQL
 }
@@ -252,12 +263,14 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 		l.emit(tsqlEOF)
 	} else if isWhiteSpace(r) {
 		return lexWhiteSpace(l)
-	} else if isAlphaNumeric(r) {
-		return lexAlphaNumeric(l)
 	} else if resume := lexSymbol(l); resume != nil {
 		return resume
 	} else if resume := lexString(l); resume != nil {
 		return resume
+	} else if unicode.IsDigit(r) {
+		return lexNumber(l)
+	} else if isAlphaNumeric(r) {
+		return lexAlphaNumeric(l)
 	} else {
 		return l.errorf("Unexpected token %s", r)
 	}
