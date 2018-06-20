@@ -44,6 +44,10 @@ const (
 	tsqlAnd
 	tsqlOr
 
+	tsqlPlus
+	tsqlMinus
+	tsqlDivide
+
 	tsqlString
 )
 
@@ -51,6 +55,23 @@ type item struct {
 	token    Token
 	text     string
 	position int
+}
+
+func (t Token) String() string {
+	switch {
+	case t == tsqlEOF:
+		return "EOF"
+	case t == tsqlError:
+		return "Error"
+	case t == tsqlSelect:
+		return "SELECT"
+	case t == tsqlFrom:
+		return "FROM"
+	case t == tsqlWhere:
+		return "WHERE"
+	}
+
+	return string(t)
 }
 
 func (i item) String() string {
@@ -173,6 +194,15 @@ func lexSymbol(l *tsqlLexer) stateFn {
 	case '*':
 		l.next()
 		l.emit(tsqlAsterisk)
+	case '+':
+		l.next()
+		l.emit(tsqlPlus)
+	case '-':
+		l.next()
+		l.emit(tsqlMinus)
+	case '/':
+		l.next()
+		l.emit(tsqlDivide)
 	case '(':
 		l.next()
 		l.emit(tsqlOpenParen)
