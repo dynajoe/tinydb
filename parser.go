@@ -70,11 +70,20 @@ type Literal struct {
 	Expression
 }
 
+type Number struct {
+	Value int
+	Expression
+}
+
 type BinaryOperation struct {
 	Left     Expression
 	Right    Expression
 	Operator string
 	Expression
+}
+
+func (num Number) String() string {
+	return fmt.Sprintf("%d", num.Value)
 }
 
 func (lit Literal) String() string {
@@ -296,9 +305,11 @@ func parseTermExpression() ExpressionParser {
 					expr = expression
 				}),
 				parens(lazy(func() Parser {
-					return parseExpression(func(expression Expression) {
-						expr = expression
-					})
+					return func(scanner *TSQLScanner) bool {
+						s, e := parseExpression()(scanner)
+						expr = e
+						return s
+					}
 				})),
 			}, nil))
 
@@ -328,12 +339,20 @@ func operatorParser(opParser Parser, nodifyOperator NodifyOperator) OperatorPars
 	}
 }
 
+func comparison() OperatorParser {
+	return operatorParser(oneOf([]Parser{
+		operator(`=`),
+	}, nil), func(tokens []item) string {
+		return tokens[1].text
+	})
+}
+
 func logical() OperatorParser {
 	return operatorParser(oneOf([]Parser{
 		operator(`AND`),
 		operator(`OR`),
 	}, nil), func(tokens []item) string {
-		return tokens[0].text
+		return tokens[1].text
 	})
 }
 
@@ -355,24 +374,16 @@ func sum() OperatorParser {
 	})
 }
 
-func parseExpression(nodify NodifyExpression) Parser {
-	return func(scanner *TSQLScanner) bool {
-		success, expression := chainl(
-			chainl(
-				parseTermExpression(),
-				makeBinaryExpression(),
-				mult(),
-			),
+func parseExpression() ExpressionParser {
+	return chainl(
+		chainl(
+			parseTermExpression(),
 			makeBinaryExpression(),
-			sum(),
-		)(scanner)
-
-		if nodify != nil {
-			nodify(expression)
-		}
-
-		return success
-	}
+			mult(),
+		),
+		makeBinaryExpression(),
+		sum(),
+	)
 }
 
 func parseTerm(nodify NodifyExpression) Parser {
@@ -388,6 +399,15 @@ func parseTerm(nodify NodifyExpression) Parser {
 			if nodify != nil {
 				nodify(Literal{
 					Value: token[0].text,
+				})
+			}
+		}),
+		requiredToken(tsqlNumber, func(token []item) {
+			num, _ := strconv.Atoi(token[0].text)
+
+			if nodify != nil {
+				nodify(Number{
+					Value: num,
 				})
 			}
 		}),
@@ -480,19 +500,38 @@ func keyword(token Token) Parser {
 	}, nil)
 }
 
+func parseWhereClause(nodify NodifyExpression) Parser {
+
+	return func(scanner *TSQLScanner) bool {
+		success, expr := chainl(
+			chainl(
+				parseExpression(),
+				makeBinaryExpression(),
+				comparison(),
+			),
+			makeBinaryExpression(),
+			logical(),
+		)(scanner)
+
+		if success {
+			nodify(expr)
+		}
+
+		return success
+	}
+}
+
 func parseSelect(scanner *TSQLScanner) SelectStatement {
 	selectStatement := &Select{}
+
 	whereClause :=
 		lazy(func() Parser {
 			return all([]Parser{
 				requiredToken(tsqlWhiteSpace, nil),
 				keyword(tsqlWhere),
-				separatedBy1(
-					keywordSeparator(tsqlAnd),
-					parseExpression(func(expr Expression) {
-						selectStatement.Filter = expr
-					}),
-				),
+				parseWhereClause(func(filter Expression) {
+					selectStatement.Filter = filter
+				}),
 			}, nil)
 		})
 
@@ -562,10 +601,12 @@ func requiredToken(expected Token, nodify Nodify) Parser {
 }
 
 func (scanner *TSQLScanner) parse() Statement {
-	if scanner.run(parseExpression(func(expression Expression) {
-		fmt.Println(expression)
-	})) {
-		fmt.Println("Parse Success")
+	success := scanner.run(parseWhereClause(func(expr Expression) {
+		fmt.Println(expr)
+	}))
+
+	if success {
+		fmt.Println("Parse success")
 	} else {
 		fmt.Println("Parse Fail")
 	}
