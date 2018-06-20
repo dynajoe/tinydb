@@ -127,17 +127,16 @@ func sqlSelect(selectStatement *Select) {
 	returnedColumnIndexes := []int{}
 	for _, column := range selectStatement.Columns {
 		if column == "*" {
-			for i, _ := range environment.Metadata.Columns {
+			for i := range environment.Metadata.Columns {
 				returnedColumnIndexes = append(returnedColumnIndexes, i)
 			}
 		} else {
-
 			returnedColumnIndexes = append(returnedColumnIndexes, environment.ColumnLookup[column])
 		}
 	}
 
 	for _, row := range records {
-		if selectStatement.Filter != nil && selectStatement.Filter.reduce().Value != "true" {
+		if selectStatement.Filter != nil && selectStatement.Filter.reduce(row, environment).Value != "true" {
 			continue
 		}
 
