@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type TableMetadata struct {
@@ -19,7 +19,12 @@ type TableMetadata struct {
 
 type ExecutionEnvironment struct {
 	ColumnLookup map[string]int
-	Metadata     *TableMetadata
+	Tables       map[string]TableMetadata
+}
+
+type SelectResult struct {
+	Columns []string
+	Rows    chan []string
 }
 
 func ExecuteStatement(statement Statement) {
@@ -29,7 +34,21 @@ func ExecuteStatement(statement Statement) {
 	case *Insert:
 		insert(s)
 	case *Select:
-		sqlSelect(s)
+		startingTime := time.Now().UTC()
+		i := 0
+
+		if result, err := sqlSelect(s); err != nil {
+			fmt.Println(err)
+		} else {
+			for row := range result.Rows {
+				fmt.Println(row)
+				i++
+			}
+		}
+
+		duration := time.Now().UTC().Sub(startingTime)
+
+		fmt.Printf("\n%d rows (%s)\n", i, duration)
 	}
 }
 
@@ -97,37 +116,54 @@ func insert(insertStatement *Insert) {
 	writer.WriteString(row)
 }
 
-func sqlSelect(selectStatement *Select) {
-	fmt.Printf("selecting the best rows from %s for your viewing pleasure\n", selectStatement.From)
-
-	for _, column := range selectStatement.Columns {
-		fmt.Printf("selecting %s from %s\n", column, selectStatement.From)
-	}
-
+func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 	environment, err := getExecutionEnvironment(selectStatement.From)
 
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	dataFile, err := os.Open(filepath.Join("./tsql_data/", selectStatement.From, "/data.csv"))
+	// Readers for table data
+	readers := make(map[string]*csv.Reader)
+	// Iterating over map likely results in non-deterministic ordering.
+	for alias, tableInfo := range environment.Tables {
+		dataFile, err := os.Open(filepath.Join("./tsql_data/", tableInfo.Name, "/data.csv"))
 
-	if err != nil {
-		return
+		if err != nil {
+			return nil, err
+		}
+
+		defer dataFile.Close()
+
+		tableCsv := csv.NewReader(dataFile)
+
+		readers[alias] = tableCsv
 	}
 
-	csvReader := csv.NewReader(dataFile)
+	crossProduct := [][]string{}
+	// Iterating over map likely results in non-deterministic ordering.
+	for _, reader := range readers {
+		records, _ := reader.ReadAll()
 
-	records, err := csvReader.ReadAll()
+		if len(crossProduct) == 0 {
+			crossProduct = records[:]
+		} else {
+			newStuff := [][]string{}
+			for _, e := range crossProduct {
+				for _, row := range records {
+					newStuff = append(newStuff, append(e, row...))
+				}
+			}
 
-	if err != nil {
-		log.Fatal(err)
+			crossProduct = newStuff
+		}
 	}
 
 	returnedColumnIndexes := []int{}
 	for _, column := range selectStatement.Columns {
 		if column == "*" {
-			for i := range environment.Metadata.Columns {
+			// Iterating over map likely results in non-deterministic ordering.
+			for _, i := range environment.ColumnLookup {
 				returnedColumnIndexes = append(returnedColumnIndexes, i)
 			}
 		} else {
@@ -135,48 +171,62 @@ func sqlSelect(selectStatement *Select) {
 		}
 	}
 
-	for _, row := range records {
-		if selectStatement.Filter != nil && selectStatement.Filter.reduce(row, environment).Value != "true" {
-			continue
+	results := make(chan []string)
+
+	go func() {
+		for _, row := range crossProduct {
+			if selectStatement.Filter != nil && selectStatement.Filter.reduce(row, environment).Value != "true" {
+				continue
+			}
+
+			results <- row
 		}
 
-		for _, columnIndex := range returnedColumnIndexes {
-			fmt.Printf("%s,", row[columnIndex])
-		}
-		fmt.Println()
-	}
+		close(results)
+	}()
 
+	return &SelectResult{
+		Rows:    results,
+		Columns: nil,
+	}, nil
 }
 
 func getMetadata(tablename string) (*TableMetadata, error) {
 	metadataPath := filepath.Join("./tsql_data/", tablename, "/metadata.json")
-	dataJson, err := ioutil.ReadFile(metadataPath)
+	data, err := ioutil.ReadFile(metadataPath)
 
 	if err != nil {
 		return nil, err
 	}
 
 	var metadata TableMetadata
-	err = json.Unmarshal(dataJson, &metadata)
+	err = json.Unmarshal(data, &metadata)
 
 	return &metadata, err
 }
 
-func getExecutionEnvironment(tablename string) (*ExecutionEnvironment, error) {
-	metadata, err := getMetadata(tablename)
-
-	if err != nil {
-		return nil, err
-	}
-
+func getExecutionEnvironment(tables map[string]string) (*ExecutionEnvironment, error) {
 	columnLookup := make(map[string]int)
+	tableMetadata := make(map[string]TableMetadata)
 
-	for i, c := range metadata.Columns {
-		columnLookup[c] = i
+	i := 0
+	for alias, table := range tables {
+		metadata, err := getMetadata(table)
+
+		if err != nil {
+			return nil, err
+		}
+
+		for _, c := range metadata.Columns {
+			columnLookup[fmt.Sprintf("%s.%s", alias, c)] = i
+			i++
+		}
+
+		tableMetadata[alias] = *metadata
 	}
 
 	return &ExecutionEnvironment{
+		Tables:       tableMetadata,
 		ColumnLookup: columnLookup,
-		Metadata:     metadata,
-	}, err
+	}, nil
 }

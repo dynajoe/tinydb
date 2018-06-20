@@ -45,7 +45,7 @@ type SelectStatement interface {
 type Values map[string]string
 
 type Select struct {
-	From    string
+	From    map[string]string
 	Columns []string
 	Filter  Expression
 }
@@ -80,6 +80,10 @@ type BinaryOperation struct {
 	Right    Expression
 	Operator string
 	Expression
+}
+
+func (stmt Select) String() string {
+	return fmt.Sprintf("SELECT %s\nFROM %s\nWHERE %s", stmt.Columns, stmt.From, stmt.Filter)
 }
 
 func (num Number) String() string {
@@ -197,8 +201,6 @@ func Parse(sql string) Statement {
 		items:    []item{},
 		position: 0,
 	}
-
-	fmt.Println(sql)
 
 	return scanner.parse()
 }
@@ -543,7 +545,9 @@ func parseWhereClause(nodify NodifyExpression) Parser {
 }
 
 func parseSelect(scanner *TSQLScanner) SelectStatement {
-	selectStatement := &Select{}
+	selectStatement := &Select{
+		From: make(map[string]string),
+	}
 
 	whereClause :=
 		lazy(func() Parser {
@@ -551,7 +555,6 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 				requiredToken(tsqlWhiteSpace, nil),
 				keyword(tsqlWhere),
 				parseWhereClause(func(filter Expression) {
-					fmt.Println(filter)
 					selectStatement.Filter = filter
 				}),
 			}, nil)
@@ -573,8 +576,18 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 			keyword(tsqlFrom),
 			separatedBy1(
 				commaSeparator(),
-				requiredToken(tsqlIdentifier, func(token []item) {
-					selectStatement.From = token[0].text
+				all([]Parser{
+					requiredToken(tsqlIdentifier, nil),
+					optional(all([]Parser{
+						requiredToken(tsqlWhiteSpace, nil),
+						requiredToken(tsqlIdentifier, nil),
+					}, nil), nil),
+				}, func(tokens [][]item) {
+					if len(tokens[1]) > 0 {
+						selectStatement.From[tokens[1][1].text] = tokens[0][0].text
+					} else {
+						selectStatement.From[tokens[0][0].text] = tokens[0][0].text
+					}
 				}),
 			),
 			optional(whereClause, nil),
@@ -624,17 +637,14 @@ func requiredToken(expected Token, nodify Nodify) Parser {
 
 func (scanner *TSQLScanner) parse() Statement {
 	if createStatement := parseCreateTable(scanner); createStatement != nil {
-		fmt.Println("Create statement!")
 		return createStatement
 	}
 
 	if insertStatement := parseInsert(scanner); insertStatement != nil {
-		fmt.Println("Insert statement!")
 		return insertStatement
 	}
 
 	if selectStatement := parseSelect(scanner); selectStatement != nil {
-		fmt.Println("Select statement!")
 		return selectStatement
 	}
 
@@ -647,8 +657,6 @@ func (scanner *TSQLScanner) peek() item {
 	if scanner.position >= 1 {
 		scanner.backup()
 	}
-
-	fmt.Printf("Peek: \"%s\"\n", token.text)
 
 	return token
 }
