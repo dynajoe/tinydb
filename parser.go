@@ -154,6 +154,26 @@ func (op BinaryOperation) reduce(columns []string, environment *ExecutionEnviron
 		return Literal{
 			Value: "false",
 		}
+	case "AND":
+		if op.Left.reduce(columns, environment).Value == "true" && op.Right.reduce(columns, environment).Value == "true" {
+			return Literal{
+				Value: "true",
+			}
+		}
+
+		return Literal{
+			Value: "false",
+		}
+	case "OR":
+		if op.Left.reduce(columns, environment).Value == "true" || op.Right.reduce(columns, environment).Value == "true" {
+			return Literal{
+				Value: "true",
+			}
+		}
+
+		return Literal{
+			Value: "false",
+		}
 	}
 
 	panic("Unknown operation")
@@ -398,7 +418,7 @@ func parseTerm(nodify NodifyExpression) Parser {
 		requiredToken(tsqlString, func(token []item) {
 			if nodify != nil {
 				nodify(Literal{
-					Value: token[0].text,
+					Value: token[0].text[1 : len(token[0].text)-1],
 				})
 			}
 		}),
@@ -420,9 +440,11 @@ func chainl(expressionParser ExpressionParser, f ExpressionMaker, opParser Opera
 
 		if success {
 			for {
-				if success, op := opParser(scanner); success {
-					if success, right := expressionParser(scanner); success {
+				if os, op := opParser(scanner); os {
+					if ps, right := expressionParser(scanner); ps {
 						expression = f(op, expression, right)
+					} else {
+						return false, nil
 					}
 				} else {
 					return true, expression
@@ -501,7 +523,6 @@ func keyword(token Token) Parser {
 }
 
 func parseWhereClause(nodify NodifyExpression) Parser {
-
 	return func(scanner *TSQLScanner) bool {
 		success, expr := chainl(
 			chainl(
@@ -530,6 +551,7 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 				requiredToken(tsqlWhiteSpace, nil),
 				keyword(tsqlWhere),
 				parseWhereClause(func(filter Expression) {
+					fmt.Println(filter)
 					selectStatement.Filter = filter
 				}),
 			}, nil)
@@ -601,30 +623,20 @@ func requiredToken(expected Token, nodify Nodify) Parser {
 }
 
 func (scanner *TSQLScanner) parse() Statement {
-	success := scanner.run(parseWhereClause(func(expr Expression) {
-		fmt.Println(expr)
-	}))
-
-	if success {
-		fmt.Println("Parse success")
-	} else {
-		fmt.Println("Parse Fail")
+	if createStatement := parseCreateTable(scanner); createStatement != nil {
+		fmt.Println("Create statement!")
+		return createStatement
 	}
 
-	// if createStatement := parseCreateTable(scanner); createStatement != nil {
-	// 	fmt.Println("Create statement!")
-	// 	return createStatement
-	// }
+	if insertStatement := parseInsert(scanner); insertStatement != nil {
+		fmt.Println("Insert statement!")
+		return insertStatement
+	}
 
-	// if insertStatement := parseInsert(scanner); insertStatement != nil {
-	// 	fmt.Println("Insert statement!")
-	// 	return insertStatement
-	// }
-
-	// if selectStatement := parseSelect(scanner); selectStatement != nil {
-	// 	fmt.Println("Select statement!")
-	// 	return selectStatement
-	// }
+	if selectStatement := parseSelect(scanner); selectStatement != nil {
+		fmt.Println("Select statement!")
+		return selectStatement
+	}
 
 	return nil
 }

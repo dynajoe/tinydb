@@ -1,1 +1,3 @@
-SELECT * FROM person;
+SELECT *
+FROM person
+WHERE name = 'joe' OR true
