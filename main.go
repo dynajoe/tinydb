@@ -10,8 +10,6 @@ import (
 )
 
 func main() {
-	Parse("(1+6)*7 AND 2 =  1 + 2")
-	return
 	data, _ := ioutil.ReadFile("./sample_query.sql")
 
 	var reader io.Reader
