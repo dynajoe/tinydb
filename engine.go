@@ -178,8 +178,13 @@ func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 			if selectStatement.Filter != nil && selectStatement.Filter.reduce(row, environment).Value != "true" {
 				continue
 			}
+			result := []string{}
 
-			results <- row
+			for _, columnIndex := range returnedColumnIndexes {
+				result = append(result, row[columnIndex])
+			}
+
+			results <- result
 		}
 
 		close(results)

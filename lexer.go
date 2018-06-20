@@ -357,7 +357,7 @@ func (l *tsqlLexer) run() {
 }
 
 func isAlphaNumeric(r rune) bool {
-	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+	return r == '_' || r == '.' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func isEndOfLine(r rune) bool {
