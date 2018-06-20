@@ -44,7 +44,10 @@ func main() {
 }
 
 func run(text string) {
+	fmt.Printf("Input:\n%s;\n\n", text)
+
 	result := Parse(strings.TrimSpace(text))
+	fmt.Printf("Statement:\n%s;\n\n", result)
 
 	if result != nil {
 		ExecuteStatement(result)
