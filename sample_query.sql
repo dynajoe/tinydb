@@ -1,3 +1,4 @@
-SELECT x.name, *
-FROM person, person p, person x
-WHERE person.name = 'joe' AND p.name = 'stephen' AND x.name = 'justin' OR x.name = 'justin'
+SELECT c.company_name, person.name, person.favorite_number
+FROM person, company c
+WHERE c.company_id = person.company_id + 1
+   AND (c.company_name = 'Softek' AND c.company_name = 'Google');

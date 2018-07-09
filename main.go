@@ -35,6 +35,12 @@ func main() {
 	scanner.Split(onSemicolon)
 
 	for scanner.Scan() {
+		text := scanner.Text()
+
+		if len(strings.TrimSpace(text)) == 0 {
+			continue
+		}
+
 		run(scanner.Text())
 	}
 
