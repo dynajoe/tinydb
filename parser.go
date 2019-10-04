@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Node struct {
@@ -58,7 +59,7 @@ type SelectStatement interface {
 	Statement
 }
 
-type Values map[string]string
+type Values map[string]Expression
 
 type Select struct {
 	From    map[string]string
@@ -132,6 +133,7 @@ type ColumnDefinition struct {
 
 type CreateTable struct {
 	Name    string
+	IfNotExists bool
 	Columns []ColumnDefinition
 }
 
@@ -162,10 +164,13 @@ func (op BinaryOperation) reduce(columns []string, environment *ExecutionEnviron
 		rightNumber, _ := strconv.Atoi(op.Right.reduce(columns, environment).Value)
 
 		return Literal{
-			Value: string(leftNumber + rightNumber),
+			Value: strconv.FormatInt(int64(leftNumber) + int64(rightNumber), 10),
 		}
 	case "=":
-		if op.Left.reduce(columns, environment).Value == op.Right.reduce(columns, environment).Value {
+		left := op.Left.reduce(columns, environment).Value
+		right := op.Right.reduce(columns, environment).Value
+
+		if left == right {
 			return Literal{
 				Value: "true",
 			}
@@ -248,6 +253,16 @@ func parseCreateTable(scanner *TSQLScanner) DDLStatement {
 			requiredToken(tsqlWhiteSpace, nil),
 			requiredToken(tsqlTable, nil),
 			requiredToken(tsqlWhiteSpace, nil),
+			optional(all([]Parser{
+				text("IF"),
+				requiredToken(tsqlWhiteSpace, nil),
+				text("NOT"),
+				requiredToken(tsqlWhiteSpace, nil),
+				text("EXISTS"),
+				requiredToken(tsqlWhiteSpace, nil),
+			}, nil), func(token []item) {
+				createTableStatement.IfNotExists = true;
+			}),
 			requiredToken(tsqlIdentifier, func(token []item) {
 				createTableStatement.Name = token[0].text
 			}),
@@ -287,7 +302,7 @@ func parseInsert(scanner *TSQLScanner) InsertStatement {
 	insertTableStatement := &Insert{}
 
 	columns := []string{}
-	values := []string{}
+	values := []Expression{}
 
 	result, _ := scanner.start(
 		all([]Parser{
@@ -299,7 +314,6 @@ func parseInsert(scanner *TSQLScanner) InsertStatement {
 				insertTableStatement.Table = token[0].text
 			}),
 			optionalToken(tsqlWhiteSpace),
-
 			requiredToken(tsqlOpenParen, nil),
 			separatedBy1(requiredToken(tsqlComma, nil),
 				all([]Parser{
@@ -320,8 +334,8 @@ func parseInsert(scanner *TSQLScanner) InsertStatement {
 			separatedBy1(requiredToken(tsqlComma, nil),
 				all([]Parser{
 					optionalToken(tsqlWhiteSpace),
-					requiredToken(tsqlIdentifier, func(token []item) {
-						values = append(values, token[0].text)
+					expressionParser(func(e Expression) {
+						values = append(values, e)
 					}),
 				}, nil),
 			),
@@ -342,7 +356,7 @@ func parseInsert(scanner *TSQLScanner) InsertStatement {
 		return nil
 	}
 
-	insertTableStatement.Values = make(map[string]string)
+	insertTableStatement.Values = make(map[string]Expression)
 
 	for i := 0; i < numColumns; i++ {
 		insertTableStatement.Values[columns[i]] = values[i]
@@ -509,6 +523,19 @@ func lazy(x func() Parser) Parser {
 	}
 }
 
+func text(r string) Parser {
+	return func(scanner *TSQLScanner) (bool, interface{}) {
+		next := scanner.peek()
+
+		if strings.ToLower(r) == strings.ToLower(next.text) {
+			scanner.next()
+			return true, r
+		}
+
+		return false, nil
+	}
+}
+
 func regex(r string) Parser {
 	return func(scanner *TSQLScanner) (bool, interface{}) {
 		next := scanner.peek()
@@ -569,7 +596,7 @@ func keyword(token Token) Parser {
 	}, nil)
 }
 
-func parseWhereClause(nodify NodifyExpression) Parser {
+func expressionParser(nodify NodifyExpression) Parser {
 	return func(scanner *TSQLScanner) (bool, interface{}) {
 		success, expr := parseExpression()(scanner)
 
@@ -603,7 +630,7 @@ func parseSelect(scanner *TSQLScanner) SelectStatement {
 			return all([]Parser{
 				requiredToken(tsqlWhiteSpace, nil),
 				keyword(tsqlWhere),
-				committed("WHERE", parseWhereClause(func(filter Expression) {
+				committed("WHERE", expressionParser(func(filter Expression) {
 					selectStatement.Filter = filter
 				})),
 			}, nil)
