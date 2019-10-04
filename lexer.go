@@ -271,7 +271,7 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 	} else if isAlphaNumeric(r) {
 		return lexAlphaNumeric(l)
 	} else {
-		return l.errorf("Unexpected token %s", r)
+		return l.errorf("Unexpected token %s", string(r))
 	}
 
 	return nil

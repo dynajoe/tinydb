@@ -43,9 +43,6 @@ func (scanner *TSQLScanner) start(parser Parser) (bool, interface{}) {
 
 	success, result := scanner.run(parser)
 
-	fmt.Printf("Parse Success: %t\n", success)
-	scanner.info()
-
 	return success, result
 }
 
