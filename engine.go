@@ -30,9 +30,13 @@ type SelectResult struct {
 func ExecuteStatement(statement Statement) {
 	switch s := statement.(type) {
 	case *CreateTable:
-		createTable(s)
+		if _, err := createTable(s); err != nil {
+			fmt.Println(err)
+		}
 	case *Insert:
-		insert(s)
+		if _, err := insert(s); err != nil {
+			fmt.Println(err)
+		}
 	case *Select:
 		startingTime := time.Now().UTC()
 		i := 0
@@ -52,9 +56,14 @@ func ExecuteStatement(statement Statement) {
 	}
 }
 
-func createTable(createStatement *CreateTable) {
-	tablePath := filepath.Join("./tsql_data/", createStatement.Name)
+func createTable(createStatement *CreateTable) (*TableMetadata, error) {
+	tablePath := filepath.Join("./tsql_data/", strings.ToLower(createStatement.Name))
 
+	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("Table already exists!")
+	}
+
+	// The table doesn't exist, proceed.
 	os.MkdirAll(tablePath, os.ModePerm)
 
 	f, _ := os.Create(filepath.Join(tablePath, "./metadata.json"))
@@ -75,16 +84,22 @@ func createTable(createStatement *CreateTable) {
 	contents, err := json.Marshal(tableMetadata)
 
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	if _, err := w.Write(contents); err != nil {
-		fmt.Println(err)
+		return nil, err
 	}
+
+	return &tableMetadata, nil
 }
 
-func insert(insertStatement *Insert) {
+func insert(insertStatement *Insert) (int, error) {
 	fmt.Printf("inserting the heck out of %s\n", insertStatement.Table)
+	emptyTables := make(map[string]string)
+	emptyColumns := []string{}
+
+	environment, err := getExecutionEnvironment(emptyTables)
 
 	for k, v := range insertStatement.Values {
 		fmt.Printf("inserting %s in %s\n", v, k)
@@ -93,14 +108,14 @@ func insert(insertStatement *Insert) {
 	metadata, err := getMetadata(insertStatement.Table)
 
 	if err != nil {
-		return
+		return 0, err
 	}
 
 	dataFile, err := os.OpenFile(filepath.Join("./tsql_data/", insertStatement.Table, "/data.csv"), os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
 	defer dataFile.Close()
 
 	if err != nil {
-		return
+		return 0, err
 	}
 
 	writer := bufio.NewWriter(dataFile)
@@ -108,12 +123,14 @@ func insert(insertStatement *Insert) {
 
 	values := []string{}
 	for _, column := range metadata.Columns {
-		values = append(values, insertStatement.Values[column])
+		values = append(values, insertStatement.Values[column].reduce(emptyColumns, environment).Value)
 	}
 
 	row := strings.Join(values, ",") + "\n"
 
 	writer.WriteString(row)
+
+	return 1, nil
 }
 
 func sqlSelect(selectStatement *Select) (*SelectResult, error) {
@@ -178,6 +195,7 @@ func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 			if selectStatement.Filter != nil && selectStatement.Filter.reduce(row, environment).Value != "true" {
 				continue
 			}
+
 			result := []string{}
 
 			for _, columnIndex := range returnedColumnIndexes {
