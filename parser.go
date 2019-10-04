@@ -7,25 +7,13 @@ import (
 	"strings"
 )
 
-type Node struct {
-	Name  string
-	Value string
-}
-
 type Parser func(*TSQLScanner) (bool, interface{})
 type OperatorParser func(*TSQLScanner) (bool, string)
-type Statementify func(tokens []item) Statement
 
 type Nodify func(tokens []item)
 type NodifyMany func(tokens [][]item)
-type ParseResult struct {
-	statement Statement
-	Error     error
-}
 
 type NodifyExpression func(expr Expression)
-type NodifyExpression2 func(expr1 []item, expr2 []item)
-
 type NodifyOperator func(tokens []item) string
 type ExpressionMaker func(op string, a Expression, b Expression) Expression
 type ExpressionParser func(scanner *TSQLScanner) (bool, Expression)
@@ -36,15 +24,6 @@ type Statement interface {
 }
 
 type DDLStatement interface {
-	iDDLStatement()
-	Statement
-}
-
-type InsertRows interface {
-	iInsertRows()
-}
-
-type CreateStatement interface {
 	iDDLStatement()
 	Statement
 }
@@ -65,16 +44,6 @@ type Select struct {
 	From    map[string]string
 	Columns []string
 	Filter  Expression
-}
-
-type BinaryOperator interface {
-	iBinaryOperator()
-	Expression
-}
-
-type UnaryOperator interface {
-	iUnaryOperator()
-	Expression
 }
 
 type Expression interface {
@@ -115,26 +84,16 @@ func (op BinaryOperation) String() string {
 	return fmt.Sprintf("(%s %s %s)", op.Left, op.Operator, op.Right)
 }
 
-type ColumnReference struct {
-	Name string
-}
-
-type ColumnType int
-
-const (
-	colTypeInt ColumnType = iota
-	colTypeText
-)
-
 type ColumnDefinition struct {
-	Name string
-	Type string
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	PrimaryKey bool   `json:"is_primary_key"`
 }
 
 type CreateTable struct {
-	Name    string
+	Name        string
 	IfNotExists bool
-	Columns []ColumnDefinition
+	Columns     []ColumnDefinition
 }
 
 type Insert struct {
@@ -164,7 +123,7 @@ func (op BinaryOperation) reduce(columns []string, environment *ExecutionEnviron
 		rightNumber, _ := strconv.Atoi(op.Right.reduce(columns, environment).Value)
 
 		return Literal{
-			Value: strconv.FormatInt(int64(leftNumber) + int64(rightNumber), 10),
+			Value: strconv.FormatInt(int64(leftNumber)+int64(rightNumber), 10),
 		}
 	case "=":
 		left := op.Left.reduce(columns, environment).Value
@@ -246,6 +205,7 @@ func Parse(sql string) Statement {
 
 func parseCreateTable(scanner *TSQLScanner) DDLStatement {
 	createTableStatement := &CreateTable{}
+	flags := make(map[string]string)
 
 	result, _ := scanner.start(
 		all([]Parser{
@@ -261,7 +221,7 @@ func parseCreateTable(scanner *TSQLScanner) DDLStatement {
 				text("EXISTS"),
 				requiredToken(tsqlWhiteSpace, nil),
 			}, nil), func(token []item) {
-				createTableStatement.IfNotExists = true;
+				createTableStatement.IfNotExists = true
 			}),
 			requiredToken(tsqlIdentifier, func(token []item) {
 				createTableStatement.Name = token[0].text
@@ -275,15 +235,28 @@ func parseCreateTable(scanner *TSQLScanner) DDLStatement {
 					requiredToken(tsqlIdentifier, nil),
 					requiredToken(tsqlWhiteSpace, nil),
 					requiredToken(tsqlIdentifier, nil),
+					optional(all([]Parser{
+						requiredToken(tsqlWhiteSpace, nil),
+						text("PRIMARY"),
+						requiredToken(tsqlWhiteSpace, nil),
+						text("KEY"),
+					}, nil), func(tokens []item) {
+						flags["primary_key"] = "true"
+					}),
 					optionalToken(tsqlWhiteSpace),
 				}, func(tokens [][]item) {
 					columnName := tokens[1][0].text
 					columnType := tokens[3][0].text
 
+					_, isPrimaryKey := flags["primary_key"]
+
 					createTableStatement.Columns = append(createTableStatement.Columns, ColumnDefinition{
-						Name: columnName,
-						Type: columnType,
+						Name:       columnName,
+						Type:       columnType,
+						PrimaryKey: isPrimaryKey,
 					})
+
+					flags = make(map[string]string)
 				})),
 			optionalToken(tsqlComma),
 			optionalToken(tsqlWhiteSpace),
@@ -301,8 +274,8 @@ func parseCreateTable(scanner *TSQLScanner) DDLStatement {
 func parseInsert(scanner *TSQLScanner) InsertStatement {
 	insertTableStatement := &Insert{}
 
-	columns := []string{}
-	values := []Expression{}
+	var columns []string
+	var values []Expression
 
 	result, _ := scanner.start(
 		all([]Parser{
@@ -402,7 +375,7 @@ func makeBinaryExpression() ExpressionMaker {
 	}
 }
 
-func operatorParser(name string, opParser Parser, nodifyOperator NodifyOperator) OperatorParser {
+func operatorParser(opParser Parser, nodifyOperator NodifyOperator) OperatorParser {
 	return func(scanner *TSQLScanner) (bool, string) {
 		var opText string
 
@@ -415,13 +388,13 @@ func operatorParser(name string, opParser Parser, nodifyOperator NodifyOperator)
 }
 
 func comparison() OperatorParser {
-	return operatorParser("comparison", operator(`=`), func(tokens []item) string {
+	return operatorParser(operator(`=`), func(tokens []item) string {
 		return tokens[1].text
 	})
 }
 
 func logical() OperatorParser {
-	return operatorParser("logical", oneOf([]Parser{
+	return operatorParser(oneOf([]Parser{
 		operator(`AND`),
 		operator(`OR`),
 	}, nil), func(tokens []item) string {
@@ -430,7 +403,7 @@ func logical() OperatorParser {
 }
 
 func mult() OperatorParser {
-	return operatorParser("multiplication", oneOf([]Parser{
+	return operatorParser(oneOf([]Parser{
 		operator(`\*`),
 		operator(`/`),
 	}, nil), func(tokens []item) string {
@@ -439,7 +412,7 @@ func mult() OperatorParser {
 }
 
 func sum() OperatorParser {
-	return operatorParser("sum", oneOf([]Parser{
+	return operatorParser(oneOf([]Parser{
 		operator(`\+`),
 		operator(`-`),
 	}, nil), func(tokens []item) string {
@@ -557,14 +530,6 @@ func operator(operatorText string) Parser {
 	}, nil)
 }
 
-func equal() Parser {
-	return all([]Parser{
-		optionalToken(tsqlWhiteSpace),
-		requiredToken(tsqlEquals, nil),
-		optionalToken(tsqlWhiteSpace),
-	}, nil)
-}
-
 func parens(inner Parser) Parser {
 	return all([]Parser{
 		requiredToken(tsqlOpenParen, nil),
@@ -578,14 +543,6 @@ func commaSeparator() Parser {
 		optionalToken(tsqlWhiteSpace),
 		requiredToken(tsqlComma, nil),
 		optionalToken(tsqlWhiteSpace),
-	}, nil)
-}
-
-func keywordSeparator(token Token) Parser {
-	return all([]Parser{
-		requiredToken(tsqlWhiteSpace, nil),
-		requiredToken(token, nil),
-		requiredToken(tsqlWhiteSpace, nil),
 	}, nil)
 }
 
@@ -700,48 +657,18 @@ func requiredToken(expected Token, nodify Nodify) Parser {
 }
 
 func separatedBy1(separator Parser, parser Parser) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
-		results := []interface{}{}
-		if success, fst := parser(scanner); success {
-			results = append(results, fst)
-
-			for {
-				if s, _ := separator(scanner); s {
-					if success, next := parser(scanner); !success {
-						results = append(results, next)
-						return false, results
-					}
-				} else {
-					return true, results
-				}
-			}
-		}
-
-		return false, results
-	}
-}
-
-func oneOrMore(parser Parser) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
-		results := []interface{}{}
-
-		if success, result := parser(scanner); success {
-			results = append(results, result)
-		} else {
-			return false, results
-		}
-
-		if success, more := zeroOrMore(parser)(scanner); success {
-			results = append(results, more)
-		}
-
-		return true, results
-	}
+	return all([]Parser{
+		parser,
+		zeroOrMore(all([]Parser{
+			separator,
+			parser,
+		}, nil)),
+	}, nil)
 }
 
 func zeroOrMore(parser Parser) Parser {
 	return func(scanner *TSQLScanner) (bool, interface{}) {
-		results := []interface{}{}
+		var results []interface{}
 
 		for {
 			if success, result := parser(scanner); success {
@@ -759,7 +686,7 @@ func all(parsers []Parser, nodify NodifyMany) Parser {
 	return func(scanner *TSQLScanner) (bool, interface{}) {
 		start := scanner.position
 		matchesAll := true
-		tokens := [][]item{}
+		var tokens [][]item
 
 		for _, parser := range parsers {
 			before := scanner.position

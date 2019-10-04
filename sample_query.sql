@@ -1,10 +1,10 @@
 CREATE TABLE IF NOT EXISTS person (
-    name text,
+    name text PRIMARY KEY,
     company_id int
 );
 
 CREATE TABLE IF NOT EXISTS company (
-    company_id int,
+    company_id int PRIMARY KEY,
     company_name text
 );
 
