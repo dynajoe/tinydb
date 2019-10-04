@@ -40,7 +40,6 @@ const (
 	tsqlLte
 	tsqlNotEq
 
-	tsqlNot
 	tsqlAnd
 	tsqlOr
 

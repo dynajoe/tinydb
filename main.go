@@ -45,7 +45,7 @@ func main() {
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading input:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "reading input:", err)
 	}
 }
 

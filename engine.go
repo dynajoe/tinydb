@@ -13,8 +13,8 @@ import (
 )
 
 type TableMetadata struct {
-	Name    string   `json:"name"`
-	Columns []string `json:"columns"`
+	Name    string             `json:"name"`
+	Columns []ColumnDefinition `json:"columns"`
 }
 
 type ExecutionEnvironment struct {
@@ -60,25 +60,25 @@ func createTable(createStatement *CreateTable) (*TableMetadata, error) {
 	tablePath := filepath.Join("./tsql_data/", strings.ToLower(createStatement.Name))
 
 	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("Table already exists!")
+		return nil, fmt.Errorf("table already exists")
 	}
 
 	// The table doesn't exist, proceed.
-	os.MkdirAll(tablePath, os.ModePerm)
-
-	f, _ := os.Create(filepath.Join(tablePath, "./metadata.json"))
-	w := bufio.NewWriter(f)
-	defer w.Flush()
-
-	columns := []string{}
-
-	for _, columnDefinition := range createStatement.Columns {
-		columns = append(columns, columnDefinition.Name)
+	if err := os.MkdirAll(tablePath, os.ModePerm); err != nil {
+		return nil, err
 	}
+
+	f, err := os.Create(filepath.Join(tablePath, "./metadata.json"))
+
+	if err != nil {
+		return nil, err
+	}
+
+	w := bufio.NewWriter(f)
 
 	tableMetadata := TableMetadata{
 		Name:    createStatement.Name,
-		Columns: columns,
+		Columns: createStatement.Columns,
 	}
 
 	contents, err := json.Marshal(tableMetadata)
@@ -91,13 +91,17 @@ func createTable(createStatement *CreateTable) (*TableMetadata, error) {
 		return nil, err
 	}
 
+	if err := w.Flush(); err != nil {
+		return nil, err
+	}
+
 	return &tableMetadata, nil
 }
 
-func insert(insertStatement *Insert) (int, error) {
+func insert(insertStatement *Insert) (rowCount int, err error) {
 	fmt.Printf("inserting the heck out of %s\n", insertStatement.Table)
 	emptyTables := make(map[string]string)
-	emptyColumns := []string{}
+	var emptyColumns []string
 
 	environment, err := getExecutionEnvironment(emptyTables)
 
@@ -112,23 +116,39 @@ func insert(insertStatement *Insert) (int, error) {
 	}
 
 	dataFile, err := os.OpenFile(filepath.Join("./tsql_data/", insertStatement.Table, "/data.csv"), os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
-	defer dataFile.Close()
+
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() {
+		if closeErr := dataFile.Close(); closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	if err != nil {
 		return 0, err
 	}
 
 	writer := bufio.NewWriter(dataFile)
-	defer writer.Flush()
 
-	values := []string{}
+	defer func() {
+		if flushErr := writer.Flush(); flushErr != nil {
+			err = flushErr
+		}
+	}()
+
+	var values []string
 	for _, column := range metadata.Columns {
-		values = append(values, insertStatement.Values[column].reduce(emptyColumns, environment).Value)
+		values = append(values, insertStatement.Values[column.Name].reduce(emptyColumns, environment).Value)
 	}
 
 	row := strings.Join(values, ",") + "\n"
 
-	writer.WriteString(row)
+	if _, err := writer.WriteString(row); err != nil {
+		return 0, err
+	}
 
 	return 1, nil
 }
@@ -141,31 +161,28 @@ func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 	}
 
 	// Readers for table data
-	readers := make(map[string]*csv.Reader)
+	var tables [][][]string
+
 	// Iterating over map likely results in non-deterministic ordering.
-	for alias, tableInfo := range environment.Tables {
-		dataFile, err := os.Open(filepath.Join("./tsql_data/", tableInfo.Name, "/data.csv"))
+	for _, tableInfo := range environment.Tables {
+		csvFile, err := os.Open(filepath.Join("./tsql_data/", tableInfo.Name, "/data.csv"))
 
 		if err != nil {
 			return nil, err
 		}
 
-		defer dataFile.Close()
+		tableCsv, _ := csv.NewReader(bufio.NewReader(csvFile)).ReadAll()
 
-		tableCsv := csv.NewReader(dataFile)
-
-		readers[alias] = tableCsv
+		tables = append(tables, tableCsv)
 	}
 
-	crossProduct := [][]string{}
-	// Iterating over map likely results in non-deterministic ordering.
-	for _, reader := range readers {
-		records, _ := reader.ReadAll()
+	var crossProduct [][]string
 
+	for _, records := range tables {
 		if len(crossProduct) == 0 {
 			crossProduct = records[:]
 		} else {
-			newStuff := [][]string{}
+			var newStuff [][]string
 			for _, e := range crossProduct {
 				for _, row := range records {
 					newStuff = append(newStuff, append(e, row...))
@@ -176,7 +193,8 @@ func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 		}
 	}
 
-	returnedColumnIndexes := []int{}
+	var returnedColumnIndexes []int
+
 	for _, column := range selectStatement.Columns {
 		if column == "*" {
 			// Iterating over map likely results in non-deterministic ordering.
@@ -196,7 +214,7 @@ func sqlSelect(selectStatement *Select) (*SelectResult, error) {
 				continue
 			}
 
-			result := []string{}
+			var result []string
 
 			for _, columnIndex := range returnedColumnIndexes {
 				result = append(result, row[columnIndex])
@@ -241,7 +259,7 @@ func getExecutionEnvironment(tables map[string]string) (*ExecutionEnvironment, e
 		}
 
 		for _, c := range metadata.Columns {
-			columnLookup[fmt.Sprintf("%s.%s", alias, c)] = i
+			columnLookup[fmt.Sprintf("%s.%s", alias, c.Name)] = i
 			i++
 		}
 
