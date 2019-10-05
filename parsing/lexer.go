@@ -1,4 +1,4 @@
-package main
+package parsing
 
 import (
 	"fmt"
@@ -49,6 +49,7 @@ const (
 
 	tsqlString
 	tsqlNumber
+	tsqlBoolean
 )
 
 type item struct {
@@ -164,6 +165,8 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 			l.emit(tsqlValues)
 		} else if strings.ToUpper(value) == "INTO" {
 			l.emit(tsqlInto)
+		} else if strings.ToUpper(value) == "TRUE" || strings.ToUpper(value) == "FALSE" {
+			l.emit(tsqlBoolean)
 		} else {
 			l.emit(tsqlIdentifier)
 		}
