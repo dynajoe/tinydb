@@ -102,10 +102,6 @@ func (e EvaluatedExpression) String() string {
 }
 
 func isInt(v interface{}) bool {
-	switch v.(type) {
-	case int:
-		return true
-	}
-
-	return false
+	_, success := v.(int)
+	return success
 }
