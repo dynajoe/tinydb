@@ -1,4 +1,4 @@
-package main
+package parsing
 
 import (
 	"fmt"
@@ -40,7 +40,6 @@ const (
 	tsqlLte
 	tsqlNotEq
 
-	tsqlNot
 	tsqlAnd
 	tsqlOr
 
@@ -50,6 +49,7 @@ const (
 
 	tsqlString
 	tsqlNumber
+	tsqlBoolean
 )
 
 type item struct {
@@ -165,6 +165,8 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 			l.emit(tsqlValues)
 		} else if strings.ToUpper(value) == "INTO" {
 			l.emit(tsqlInto)
+		} else if strings.ToUpper(value) == "TRUE" || strings.ToUpper(value) == "FALSE" {
+			l.emit(tsqlBoolean)
 		} else {
 			l.emit(tsqlIdentifier)
 		}
@@ -272,7 +274,7 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 	} else if isAlphaNumeric(r) {
 		return lexAlphaNumeric(l)
 	} else {
-		return l.errorf("Unexpected token %s", r)
+		return l.errorf("Unexpected token %s", string(r))
 	}
 
 	return nil
