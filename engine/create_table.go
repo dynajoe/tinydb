@@ -7,11 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	. "github.com/joeandaverde/tinydb/parsing"
 )
 
-func createTable(createStatement *CreateTableStatement) (*TableMetadata, error) {
+func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableMetadata, error) {
 	tablePath := filepath.Join("./tsql_data/", strings.ToLower(createStatement.TableName))
 
 	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {

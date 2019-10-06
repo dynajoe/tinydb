@@ -1,4 +1,4 @@
-package parsing
+package engine
 
 type Parser func(*TSQLScanner) (bool, interface{})
 

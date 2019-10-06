@@ -5,8 +5,6 @@ import (
 	"encoding/csv"
 	"os"
 	"path/filepath"
-
-	. "github.com/joeandaverde/tinydb/parsing"
 )
 
 type SelectResult struct {
@@ -14,8 +12,8 @@ type SelectResult struct {
 	Rows    chan []string
 }
 
-func doSelect(selectStatement *SelectStatement) (*SelectResult, error) {
-	environment, err := getExecutionEnvironment(selectStatement.From)
+func doSelect(engine *Engine, selectStatement *SelectStatement) (*SelectResult, error) {
+	environment, err := getExecutionEnvironment(engine, selectStatement.From)
 
 	if err != nil {
 		return nil, err

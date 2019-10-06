@@ -1,4 +1,4 @@
-package parsing
+package engine
 
 import (
 	"fmt"
@@ -12,8 +12,10 @@ type TableMetadata struct {
 
 type ExecutionEnvironment struct {
 	ColumnLookup map[string]int
-	Tables       map[string]TableMetadata
+	Tables       map[string]*TableMetadata
 	Columns      []string
+	Indexes      map[string]*BTree
+	Engine       *Engine
 }
 
 type EvaluatedExpression struct {
@@ -25,8 +27,8 @@ func Evaluate(expression Expression, data []string, environment *ExecutionEnviro
 }
 
 func (o *BinaryOperation) Evaluate(data []string, environment *ExecutionEnvironment) EvaluatedExpression {
-	left := o.Left.Evaluate(data, environment).Value
-	right := o.Right.Evaluate(data, environment).Value
+	left := Evaluate(o.Left, data, environment).Value
+	right := Evaluate(o.Right, data, environment).Value
 
 	switch o.Operator {
 	case "+":

@@ -6,16 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	. "github.com/joeandaverde/tinydb/parsing"
 )
 
-func doInsert(insertStatement *InsertStatement) (rowCount int, err error) {
+func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, err error) {
 	fmt.Printf("inserting the heck out of %s\n", insertStatement.Table)
 	emptyTables := make(map[string]string)
 	var emptyColumns []string
 
-	environment, err := getExecutionEnvironment(emptyTables)
+	environment, err := getExecutionEnvironment(engine, emptyTables)
 
 	for k, v := range insertStatement.Values {
 		fmt.Printf("inserting %s in %s\n", v, k)
