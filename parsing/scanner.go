@@ -1,4 +1,4 @@
-package main
+package parsing
 
 import "fmt"
 
@@ -42,9 +42,6 @@ func (scanner *TSQLScanner) start(parser Parser) (bool, interface{}) {
 	scanner.isAborted = false
 
 	success, result := scanner.run(parser)
-
-	fmt.Printf("Parse Success: %t\n", success)
-	scanner.info()
 
 	return success, result
 }

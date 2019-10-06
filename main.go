@@ -7,10 +7,12 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+
+	"github.com/joeandaverde/tinydb/engine"
 )
 
 func main() {
-	data, _ := ioutil.ReadFile("./sample_query.sql")
+	data, _ := ioutil.ReadFile("./samples/all.sql")
 
 	var reader io.Reader
 
@@ -41,21 +43,10 @@ func main() {
 			continue
 		}
 
-		run(scanner.Text())
+		engine.Run(scanner.Text())
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading input:", err)
-	}
-}
-
-func run(text string) {
-	fmt.Printf("Input:\n%s;\n\n", text)
-
-	result := Parse(strings.TrimSpace(text))
-	fmt.Printf("Statement:\n%s;\n\n", result)
-
-	if result != nil {
-		ExecuteStatement(result)
+		_, _ = fmt.Fprintln(os.Stderr, "reading input:", err)
 	}
 }
