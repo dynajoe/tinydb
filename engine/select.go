@@ -16,10 +16,6 @@ type nestedLoop struct {
 	filter Expression
 }
 
-type materialize struct {
-	selectResult *SelectResult
-}
-
 type indexScan struct {
 	index  *BTree
 	value  string
@@ -69,8 +65,6 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Sele
 		Columns: nil,
 	}, nil
 }
-
-type String string
 
 func(s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
 	csvFile, err := newTableScanner(s.column.table)
