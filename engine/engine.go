@@ -5,13 +5,43 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+type Engine struct {
+	Indexes map[string]*BTree
+	Tables  map[string]*TableMetadata
+}
+
+type (
+	indexedField struct {
+		value string
+		offset int
+	}
+
+	pkJob struct {
+		table *TableMetadata
+		fieldIndex int
+		result *BTree
+	}
+)
+
+func Start() *Engine {
+	tables := loadTables()
+	indexes := buildIndexes(tables)
+
+	return &Engine{
+		Tables: tables,
+		Indexes: indexes,
+	}
+}
 
 func Run(engine *Engine, text string) {
 	fmt.Printf("Input:\n%s;\n\n", text)
@@ -53,60 +83,79 @@ func ExecuteStatement(engine *Engine, statement Statement) {
 	}
 }
 
-func getTableMetadata(tableName string) (*TableMetadata, error) {
-	metadataPath := filepath.Join("./tsql_data/", tableName, "/metadata.json")
-	data, err := ioutil.ReadFile(metadataPath)
+func (f *indexedField) Less(than Item) bool {
+	return f.value < than.(*indexedField).value
+}
+
+func newTableScanner(tableName string) (*csv.Reader, error) {
+	csvFile, err := os.Open(filepath.Join("./tsql_data/", tableName, "/data.csv"))
 
 	if err != nil {
 		return nil, err
 	}
 
-	var metadata TableMetadata
-	err = json.Unmarshal(data, &metadata)
+	tableCsv := csv.NewReader(bufio.NewReader(csvFile))
 
-	return &metadata, err
+	return tableCsv, nil
 }
 
-type indexedField struct {
-	value string
-	offset int
-}
+func buildIndex(job *pkJob) {
+	btree := New(5)
 
-func (f *indexedField) Less(than Item) bool {
-	return f.value < than.(*indexedField).value
+	csvReader, err := newTableScanner(job.table.Name)
+
+	if err != nil {
+		panic("unable to build index")
+	}
+
+	rowCount := 0
+	for {
+		data, err := csvReader.Read()
+
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			log.Fatal(err)
+		}
+
+		rowCount++
+
+		btree.Insert(&indexedField{
+			value:  data[job.fieldIndex],
+			offset: rowCount,
+		})
+	}
+
+	job.result = btree
 }
 
 func buildIndexes(m map[string]*TableMetadata) map[string]*BTree {
 	indexes := make(map[string]*BTree)
+	results := make(chan *pkJob)
+
+	var wg sync.WaitGroup
 
 	for _, t := range m {
-		var primaryKeyIndex = -1
 		for i, c := range t.Columns {
 			if c.PrimaryKey {
-				primaryKeyIndex = i
+				wg.Add(1)
+				go func(i int, t *TableMetadata) {
+					defer wg.Done()
+					job := &pkJob{ fieldIndex: i, table: t }
+					buildIndex(job)
+					results <- job
+				}(i, t)
 			}
 		}
+	}
 
-		if primaryKeyIndex >= 0 {
-			btree := New(5)
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
-			csvFile, err := os.Open(filepath.Join("./tsql_data/", t.Name, "/data.csv"))
-
-			if err != nil {
-				panic("unable to build index")
-			}
-
-			tableCsv, _ := csv.NewReader(bufio.NewReader(csvFile)).ReadAll()
-
-			for r, v := range tableCsv {
-				btree.Insert(&indexedField{
-					value: v[primaryKeyIndex],
-					offset: r,
-				})
-			}
-
-			indexes[t.Name] = btree
-		}
+	for job := range results {
+		indexes[job.table.Name] = job.result
 	}
 
 	return indexes
@@ -121,9 +170,20 @@ func loadTables() map[string]*TableMetadata {
 		}
 
 		if strings.HasSuffix(p,"metadata.json") {
-			tableName := strings.Replace(path.Dir(p), "tsql_data/", "", 1)
-			metadata, _ := getTableMetadata(tableName)
-			tableMetadata[tableName] = metadata
+			data, err := ioutil.ReadFile(p)
+
+			if err != nil {
+				panic("unable to load tables")
+			}
+
+			var metadata TableMetadata
+			err = json.Unmarshal(data, &metadata)
+
+			if err != nil {
+				panic("unable to load tables")
+			}
+
+			tableMetadata[metadata.Name] = &metadata
 		}
 
 		return nil
@@ -132,21 +192,27 @@ func loadTables() map[string]*TableMetadata {
 	return tableMetadata
 }
 
-func getExecutionEnvironment(engine *Engine, tables map[string]string) (*ExecutionEnvironment, error) {
-	columnLookup := make(map[string]int)
+func getExecutionEnvironment(engine *Engine, tables []TableAlias) (*ExecutionEnvironment, error) {
+	columnLookup := make(map[string]*ColumnReference)
 	tableMetadata := make(map[string]*TableMetadata)
 	allMetadata := make([]*TableMetadata, len(tables))
 
 	i := 0
-	for alias, table := range tables {
-		metadata, _ := engine.Tables[table]
+	for _, tableAlias := range tables {
+		metadata, _ := engine.Tables[tableAlias.name]
 
 		for _, c := range metadata.Columns {
-			columnLookup[fmt.Sprintf("%s.%s", alias, c.Name)] = i
+			columnLookup[fmt.Sprintf("%s.%s", tableAlias.alias, c.Name)] = &ColumnReference{
+				table: tableAlias.name,
+				alias: tableAlias.alias,
+				index: i,
+				definition: c,
+			}
+
 			i++
 		}
 
-		tableMetadata[alias] = metadata
+		tableMetadata[tableAlias.alias] = metadata
 		allMetadata = append(allMetadata, metadata)
 	}
 
@@ -155,19 +221,4 @@ func getExecutionEnvironment(engine *Engine, tables map[string]string) (*Executi
 		ColumnLookup: columnLookup,
 		Engine:       engine,
 	}, nil
-}
-
-type Engine struct {
-	Indexes map[string]*BTree
-	Tables  map[string]*TableMetadata
-}
-
-func Start() *Engine {
-	tables := loadTables()
-	indexes := buildIndexes(tables)
-
-	return &Engine{
-		Tables: tables,
-		Indexes: indexes,
-	}
 }

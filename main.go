@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	data, _ := ioutil.ReadFile("./samples/all.sql")
+	data, _ := ioutil.ReadFile("./samples/select.sql")
 
 	var reader io.Reader
 

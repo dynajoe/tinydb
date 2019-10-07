@@ -145,6 +145,25 @@ func newNodeWithItem(item Item) *node  {
 	return node
 }
 
+
+func (b *BTree) Find(item Item) Item {
+	if b.root == nil {
+		return nil
+	}
+
+	return b.root.find(item)
+}
+
+func (n *node) find(item Item) Item {
+	i, found := n.items.find(item)
+
+	if found {
+		return n.items[i]
+	} else {
+		return n.children[i].find(item)
+	}
+}
+
 func (b *BTree) Insert(item Item) Item {
 	if b.root == nil {
 		b.root = newNodeWithItem(item)
