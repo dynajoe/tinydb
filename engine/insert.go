@@ -10,7 +10,8 @@ import (
 
 func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, err error) {
 	fmt.Printf("inserting the heck out of %s\n", insertStatement.Table)
-	emptyTables := make(map[string]string)
+
+	var emptyTables []TableAlias
 	var emptyColumns []string
 
 	environment, err := getExecutionEnvironment(engine, emptyTables)
@@ -19,7 +20,7 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, e
 		fmt.Printf("inserting %s in %s\n", v, k)
 	}
 
-	metadata, err := getTableMetadata(insertStatement.Table)
+	metadata := engine.Tables[insertStatement.Table]
 
 	if err != nil {
 		return 0, err

@@ -32,8 +32,13 @@ type ColumnDefinition struct {
 	PrimaryKey bool   `json:"is_primary_key"`
 }
 
+type TableAlias struct {
+	name string
+	alias string
+}
+
 type SelectStatement struct {
-	From    map[string]string
+	From    []TableAlias
 	Columns []string
 	Filter  Expression
 }
