@@ -210,19 +210,19 @@ func parseSelect(scanner *TSQLScanner) *SelectStatement {
 				all([]Parser{
 					committed("RELATION",
 						requiredToken(tsqlIdentifier, nil)),
-						optional(all([]Parser{
-							requiredToken(tsqlWhiteSpace, nil),
-							requiredToken(tsqlIdentifier, nil),
-						}, nil), nil),
+					optional(all([]Parser{
+						requiredToken(tsqlWhiteSpace, nil),
+						requiredToken(tsqlIdentifier, nil),
+					}, nil), nil),
 				}, func(tokens [][]item) {
 					if len(tokens[1]) > 0 {
 						selectStatement.From = append(selectStatement.From, TableAlias{
-							name: tokens[0][0].text,
+							name:  tokens[0][0].text,
 							alias: tokens[1][1].text,
 						})
 					} else {
 						selectStatement.From = append(selectStatement.From, TableAlias{
-							name: tokens[0][0].text,
+							name:  tokens[0][0].text,
 							alias: tokens[0][0].text,
 						})
 					}

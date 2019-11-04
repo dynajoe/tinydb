@@ -11,9 +11,9 @@ type TableMetadata struct {
 }
 
 type ColumnReference struct {
-	table string
-	alias string
-	index int
+	table      string
+	alias      string
+	index      int
 	definition ColumnDefinition
 }
 
