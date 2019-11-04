@@ -11,17 +11,17 @@ type children []*node
 type items []Item
 
 type node struct {
-	items items
+	items    items
 	children children
 }
 
 type BTree struct {
 	degree int
 	length int
-	root *node
+	root   *node
 }
 
-func New(d int) *BTree{
+func New(d int) *BTree {
 	return &BTree{
 		degree: d,
 		length: 0,
@@ -29,8 +29,8 @@ func New(d int) *BTree{
 }
 
 func newNode() *node {
-	return &node {
-		items: make([]Item, 0, 4),
+	return &node{
+		items:    make([]Item, 0, 4),
 		children: make([]*node, 0, 4),
 	}
 }
@@ -51,7 +51,7 @@ func (s items) find(item Item) (int, bool) {
 	// s[i - 1] = 1
 	// false
 	// i == 0
-	if i > 0 && !s[i - 1].Less(item) {
+	if i > 0 && !s[i-1].Less(item) {
 		return i - 1, true
 	}
 
@@ -59,11 +59,11 @@ func (s items) find(item Item) (int, bool) {
 }
 
 func (b *BTree) maxItems() int {
-	return b.degree * 2 - 1
+	return b.degree*2 - 1
 }
 
 var (
-	nilItems = make(items, 16)
+	nilItems    = make(items, 16)
 	nilChildren = make(children, 16)
 )
 
@@ -80,7 +80,7 @@ func (s *children) truncate(index int) {
 
 func (s *children) insertAt(index int, n *node) {
 	// https://github.com/google/btree/issues/33
-	if index >= len(*s) + 1 {
+	if index >= len(*s)+1 {
 		panic("item would not fit")
 	}
 
@@ -107,7 +107,7 @@ func (s *items) truncate(index int) {
 
 func (s *items) insertAt(index int, item Item) {
 	// https://github.com/google/btree/issues/33
-	if index >= len(*s) + 1 {
+	if index >= len(*s)+1 {
 		panic("item would not fit")
 	}
 
@@ -132,19 +132,18 @@ func (n *node) split(i int) (Item, *node) {
 
 	if len(n.children) > 0 {
 		// All children after this node are greater and should be moved to the right
-		right.children = append(right.children, n.children[i + 1:]...)
+		right.children = append(right.children, n.children[i+1:]...)
 		n.children.truncate(i + 1)
 	}
 
 	return parent, right
 }
 
-func newNodeWithItem(item Item) *node  {
+func newNodeWithItem(item Item) *node {
 	node := newNode()
 	node.items = append(node.items, item)
 	return node
 }
-
 
 func (b *BTree) Find(item Item) Item {
 	if b.root == nil {
@@ -213,7 +212,7 @@ func (n *node) insert(item Item, maxItems int) Item {
 		// need to split the child
 		promotedItem, newNode := childToInsert.split(maxItems / 2)
 		n.items.insertAt(i, promotedItem)
-		n.children.insertAt(i + 1, newNode)
+		n.children.insertAt(i+1, newNode)
 
 		// is the item equal to the one being promoted?
 		if !promotedItem.Less(item) && !item.Less(promotedItem) {
@@ -222,7 +221,7 @@ func (n *node) insert(item Item, maxItems int) Item {
 			return promotedItem
 		} else if promotedItem.Less(item) {
 			// Since we split the child which way does this item need to be inserted?
-			return n.children[i + 1].insert(item, maxItems)
+			return n.children[i+1].insert(item, maxItems)
 		} else {
 			return n.children[i].insert(item, maxItems)
 		}

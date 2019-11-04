@@ -23,7 +23,7 @@ type indexScan struct {
 }
 
 type sequenceScan struct {
-	table *TableMetadata
+	table  *TableMetadata
 	filter Expression
 }
 
@@ -66,7 +66,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Sele
 	}, nil
 }
 
-func(s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
+func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
 	csvFile, err := newTableScanner(s.column.table)
 
 	if err != nil {
@@ -77,12 +77,12 @@ func(s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectRe
 
 	go func() {
 		item := s.index.Find(&indexedField{
-			value:  s.value,
+			value: s.value,
 		})
 
 		if f, ok := item.(*indexedField); ok {
 			offset := 0
-			for  {
+			for {
 				row, err := csvFile.Read()
 
 				if err == io.EOF {
@@ -108,7 +108,7 @@ func(s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectRe
 	}, nil
 }
 
-func(s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
+func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
 	results := make(chan []string)
 
 	go func() {
@@ -153,8 +153,8 @@ func optimize(plan planItem, engine *Engine, environment *ExecutionEnvironment) 
 				columnReference := environment.ColumnLookup[leftIdent.Value]
 				if columnReference.definition.PrimaryKey {
 					return &indexScan{
-						index: engine.Indexes[columnReference.table],
-						value: rightLiteral.Value,
+						index:  engine.Indexes[columnReference.table],
+						value:  rightLiteral.Value,
 						column: columnReference,
 					}
 				}
@@ -184,7 +184,7 @@ func asLiteral(e Expression) *BasicLiteral {
 func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatement *SelectStatement) planItem {
 	if len(selectStatement.From) == 1 {
 		return &sequenceScan{
-			table: environment.Tables[selectStatement.From[0].alias],
+			table:  environment.Tables[selectStatement.From[0].alias],
 			filter: selectStatement.Filter,
 		}
 	} else {

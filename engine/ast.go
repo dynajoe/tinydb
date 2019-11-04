@@ -33,7 +33,7 @@ type ColumnDefinition struct {
 }
 
 type TableAlias struct {
-	name string
+	name  string
 	alias string
 }
 

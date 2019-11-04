@@ -22,14 +22,14 @@ type Engine struct {
 
 type (
 	indexedField struct {
-		value string
+		value  string
 		offset int
 	}
 
 	pkJob struct {
-		table *TableMetadata
+		table      *TableMetadata
 		fieldIndex int
-		result *BTree
+		result     *BTree
 	}
 )
 
@@ -38,7 +38,7 @@ func Start() *Engine {
 	indexes := buildIndexes(tables)
 
 	return &Engine{
-		Tables: tables,
+		Tables:  tables,
 		Indexes: indexes,
 	}
 }
@@ -141,7 +141,7 @@ func buildIndexes(m map[string]*TableMetadata) map[string]*BTree {
 				wg.Add(1)
 				go func(i int, t *TableMetadata) {
 					defer wg.Done()
-					job := &pkJob{ fieldIndex: i, table: t }
+					job := &pkJob{fieldIndex: i, table: t}
 					buildIndex(job)
 					results <- job
 				}(i, t)
@@ -169,7 +169,7 @@ func loadTables() map[string]*TableMetadata {
 			return err
 		}
 
-		if strings.HasSuffix(p,"metadata.json") {
+		if strings.HasSuffix(p, "metadata.json") {
 			data, err := ioutil.ReadFile(p)
 
 			if err != nil {
@@ -203,9 +203,9 @@ func getExecutionEnvironment(engine *Engine, tables []TableAlias) (*ExecutionEnv
 
 		for _, c := range metadata.Columns {
 			columnLookup[fmt.Sprintf("%s.%s", tableAlias.alias, c.Name)] = &ColumnReference{
-				table: tableAlias.name,
-				alias: tableAlias.alias,
-				index: i,
+				table:      tableAlias.name,
+				alias:      tableAlias.alias,
+				index:      i,
 				definition: c,
 			}
 
