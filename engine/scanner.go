@@ -2,7 +2,7 @@ package engine
 
 import "fmt"
 
-type TSQLScanner struct {
+type tsqlScanner struct {
 	lexer     *tsqlLexer
 	input     string
 	items     []item
@@ -11,7 +11,7 @@ type TSQLScanner struct {
 	committed string
 }
 
-func (scanner *TSQLScanner) peek() item {
+func (scanner *tsqlScanner) peek() item {
 	token := scanner.next()
 
 	if scanner.position >= 1 {
@@ -21,7 +21,7 @@ func (scanner *TSQLScanner) peek() item {
 	return token
 }
 
-func (scanner *TSQLScanner) backup() {
+func (scanner *tsqlScanner) backup() {
 	if scanner.position > 0 {
 		scanner.position--
 	} else {
@@ -29,14 +29,14 @@ func (scanner *TSQLScanner) backup() {
 	}
 }
 
-func (scanner *TSQLScanner) info() {
+func (scanner *tsqlScanner) info() {
 	fmt.Printf("context: %s\n\tposition: %d\n\titems: %s\n\n",
 		scanner.committed,
 		scanner.position,
 		scanner.items)
 }
 
-func (scanner *TSQLScanner) start(parser Parser) (bool, interface{}) {
+func (scanner *tsqlScanner) start(parser tsqlParser) (bool, interface{}) {
 	scanner.position = 0
 	scanner.committed = ""
 	scanner.isAborted = false
@@ -46,7 +46,7 @@ func (scanner *TSQLScanner) start(parser Parser) (bool, interface{}) {
 	return success, result
 }
 
-func (scanner *TSQLScanner) run(parser Parser) (bool, interface{}) {
+func (scanner *tsqlScanner) run(parser tsqlParser) (bool, interface{}) {
 	start := scanner.position
 
 	if success, result := parser(scanner); success {
@@ -57,7 +57,7 @@ func (scanner *TSQLScanner) run(parser Parser) (bool, interface{}) {
 	return false, nil
 }
 
-func (scanner *TSQLScanner) next() item {
+func (scanner *tsqlScanner) next() item {
 	if scanner.isAborted {
 		return item{
 			token:    tsqlEOF,

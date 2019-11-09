@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Engine struct {
@@ -34,6 +35,7 @@ type (
 )
 
 func Start() *Engine {
+	log.Info("Starting database engine")
 	tables := loadTables()
 	indexes := buildIndexes(tables)
 
@@ -44,10 +46,8 @@ func Start() *Engine {
 }
 
 func Run(engine *Engine, text string) {
-	fmt.Printf("Input:\n%s;\n\n", text)
-
+	log.Debug("EXEC: ", text)
 	result := Parse(strings.TrimSpace(text))
-	fmt.Printf("Statement:\n%s;\n\n", result)
 
 	if result != nil {
 		ExecuteStatement(engine, result)
