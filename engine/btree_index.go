@@ -21,9 +21,9 @@ type BTree struct {
 	root   *node
 }
 
-func New(d int) *BTree {
+func New(degree int) *BTree {
 	return &BTree{
-		degree: d,
+		degree: degree,
 		length: 0,
 	}
 }
@@ -79,7 +79,6 @@ func (s *children) truncate(index int) {
 }
 
 func (s *children) insertAt(index int, n *node) {
-	// https://github.com/google/btree/issues/33
 	if index >= len(*s)+1 {
 		panic("item would not fit")
 	}
@@ -106,7 +105,6 @@ func (s *items) truncate(index int) {
 }
 
 func (s *items) insertAt(index int, item Item) {
-	// https://github.com/google/btree/issues/33
 	if index >= len(*s)+1 {
 		panic("item would not fit")
 	}

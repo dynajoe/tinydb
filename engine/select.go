@@ -5,7 +5,8 @@ import (
 	"log"
 )
 
-type SelectResult struct {
+// ResultSet is the result of a query; rows are provided asynchronously
+type ResultSet struct {
 	Columns []string
 	Rows    chan []string
 }
@@ -28,10 +29,10 @@ type sequenceScan struct {
 }
 
 type planItem interface {
-	execute(*Engine, *ExecutionEnvironment) (*SelectResult, error)
+	execute(*Engine, *ExecutionEnvironment) (*ResultSet, error)
 }
 
-func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
+func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
 	csvFile, err := newTableScanner(s.table.Name)
 
 	if err != nil {
@@ -60,13 +61,13 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Sele
 		close(results)
 	}()
 
-	return &SelectResult{
+	return &ResultSet{
 		Rows:    results,
 		Columns: nil,
 	}, nil
 }
 
-func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
+func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
 	csvFile, err := newTableScanner(s.column.table)
 
 	if err != nil {
@@ -102,13 +103,13 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*SelectR
 		close(results)
 	}()
 
-	return &SelectResult{
+	return &ResultSet{
 		Columns: nil,
 		Rows:    results,
 	}, nil
 }
 
-func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*SelectResult, error) {
+func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
 	results := make(chan []string)
 
 	go func() {
@@ -137,24 +138,36 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Select
 		close(results)
 	}()
 
-	return &SelectResult{
+	return &ResultSet{
 		Columns: nil,
 		Rows:    results,
 	}, nil
 }
 
+func identLiteralOperation(op *BinaryOperation) (*Ident, *BasicLiteral) {
+	if leftIdent, rightLiteral := asIdent(op.Left), asLiteral(op.Right); leftIdent != nil && rightLiteral != nil {
+		return leftIdent, rightLiteral
+	}
+
+	if rightIdent, leftLiteral := asIdent(op.Right), asLiteral(op.Left); rightIdent != nil && leftLiteral != nil {
+		return rightIdent, leftLiteral
+	}
+
+	return nil, nil
+}
+
 func optimize(plan planItem, engine *Engine, environment *ExecutionEnvironment) planItem {
 	if s, ok := plan.(*sequenceScan); ok {
+		// This simply detects: customer_id = 1 or 1 = customer_id
 		if op, ok := s.filter.(*BinaryOperation); ok {
-			leftIdent := asIdent(op.Left)
-			rightLiteral := asLiteral(op.Right)
+			ident, literal := identLiteralOperation(op)
 
-			if leftIdent != nil && rightLiteral != nil && op.Operator == "=" {
-				columnReference := environment.ColumnLookup[leftIdent.Value]
+			if ident != nil && literal != nil && op.Operator == "=" {
+				columnReference := environment.ColumnLookup[ident.Value]
 				if columnReference.definition.PrimaryKey {
 					return &indexScan{
 						index:  engine.Indexes[columnReference.table],
-						value:  rightLiteral.Value,
+						value:  literal.Value,
 						column: columnReference,
 					}
 				}
@@ -187,24 +200,22 @@ func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatemen
 			table:  environment.Tables[selectStatement.From[0].alias],
 			filter: selectStatement.Filter,
 		}
-	} else {
-		return &nestedLoop{
-			outer: &sequenceScan{
-				table:  environment.Tables[selectStatement.From[0].alias],
-				filter: nil,
-			},
-			inner: &sequenceScan{
-				table:  environment.Tables[selectStatement.From[1].alias],
-				filter: nil,
-			},
-			filter: selectStatement.Filter,
-		}
 	}
 
-	return nil
+	return &nestedLoop{
+		outer: &sequenceScan{
+			table:  environment.Tables[selectStatement.From[0].alias],
+			filter: nil,
+		},
+		inner: &sequenceScan{
+			table:  environment.Tables[selectStatement.From[1].alias],
+			filter: nil,
+		},
+		filter: selectStatement.Filter,
+	}
 }
 
-func doSelect(engine *Engine, selectStatement *SelectStatement) (*SelectResult, error) {
+func doSelect(engine *Engine, selectStatement *SelectStatement) (*ResultSet, error) {
 	environment, err := getExecutionEnvironment(engine, selectStatement.From)
 
 	if err != nil {
