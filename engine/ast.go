@@ -45,7 +45,7 @@ type SelectStatement struct {
 
 type InsertStatement struct {
 	Table  string
-	Values Values
+	Values map[string]Expression
 }
 
 func (*SelectStatement) Kind() string      { return "select-statement" }
