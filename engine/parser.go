@@ -1,4 +1,4 @@
-package parsing
+package engine
 
 type Parser func(*TSQLScanner) (bool, interface{})
 
@@ -178,9 +178,7 @@ func parseInsert(scanner *TSQLScanner) *InsertStatement {
 }
 
 func parseSelect(scanner *TSQLScanner) *SelectStatement {
-	selectStatement := &SelectStatement{
-		From: make(map[string]string),
-	}
+	selectStatement := &SelectStatement{}
 
 	whereClause :=
 		lazy(func() Parser {
@@ -210,16 +208,23 @@ func parseSelect(scanner *TSQLScanner) *SelectStatement {
 			committed("RELATIONS", separatedBy1(
 				commaSeparator(),
 				all([]Parser{
-					committed("RELATION", requiredToken(tsqlIdentifier, nil)),
+					committed("RELATION",
+						requiredToken(tsqlIdentifier, nil)),
 					optional(all([]Parser{
 						requiredToken(tsqlWhiteSpace, nil),
 						requiredToken(tsqlIdentifier, nil),
 					}, nil), nil),
 				}, func(tokens [][]item) {
 					if len(tokens[1]) > 0 {
-						selectStatement.From[tokens[1][1].text] = tokens[0][0].text
+						selectStatement.From = append(selectStatement.From, TableAlias{
+							name:  tokens[0][0].text,
+							alias: tokens[1][1].text,
+						})
 					} else {
-						selectStatement.From[tokens[0][0].text] = tokens[0][0].text
+						selectStatement.From = append(selectStatement.From, TableAlias{
+							name:  tokens[0][0].text,
+							alias: tokens[0][0].text,
+						})
 					}
 				}),
 			)),

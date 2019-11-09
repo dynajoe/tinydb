@@ -1,4 +1,4 @@
-package parsing
+package engine
 
 import (
 	"fmt"
@@ -26,6 +26,7 @@ const (
 	tsqlSelect
 	tsqlFrom
 	tsqlWhere
+	tsqlAs
 
 	tsqlCreate
 	tsqlInsert
@@ -149,6 +150,8 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 			l.emit(tsqlSelect)
 		} else if strings.ToUpper(value) == "FROM" {
 			l.emit(tsqlFrom)
+		} else if strings.ToUpper(value) == "AS" {
+			l.emit(tsqlAs)
 		} else if strings.ToUpper(value) == "TABLE" {
 			l.emit(tsqlTable)
 		} else if strings.ToUpper(value) == "WHERE" {
