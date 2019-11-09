@@ -12,11 +12,11 @@ INSERT INTO company (company_id, company_name) VALUES ('1', 'Illuminate');
 
 INSERT INTO company (company_id, company_name) VALUES ('2', 'Google');
 
-INSERT INTO person (name, company_id) VALUES ('Joe', '1');
+INSERT INTO person (name, company_id) VALUES ('Joes', '1');
 
 INSERT INTO person (name, company_id) VALUES ('Alex', '1');
 
-INSERT INTO person (name, company_id) VALUES ('Blake', '2');
+INSERT INTO person (name, company_id) VALUES ('Blakes', '2');
 
 SELECT person.name
 FROM person

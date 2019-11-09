@@ -5,15 +5,15 @@ import (
 	"strings"
 )
 
-func chainl(expressionParser ExpressionParser, expressionMaker ExpressionMaker, opParser OperatorParser) ExpressionParser {
-	return func(scanner *TSQLScanner) (bool, Expression) {
-		success, expression := expressionParser(scanner)
+func chainl(ep expressionParser, em expressionMaker, opParser tsqlOpParser) expressionParser {
+	return func(scanner *tsqlScanner) (bool, Expression) {
+		success, expression := ep(scanner)
 
 		if success {
 			for {
 				if os, op := opParser(scanner); os {
-					if ps, right := expressionParser(scanner); ps {
-						expression = expressionMaker(op, expression, right)
+					if ps, right := ep(scanner); ps {
+						expression = em(op, expression, right)
 					} else {
 						return false, nil
 					}
@@ -27,14 +27,14 @@ func chainl(expressionParser ExpressionParser, expressionMaker ExpressionMaker, 
 	}
 }
 
-func lazy(x func() Parser) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func lazy(x func() tsqlParser) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		return x()(scanner)
 	}
 }
 
-func text(r string) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func text(r string) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		next := scanner.peek()
 
 		if strings.ToLower(r) == strings.ToLower(next.text) {
@@ -46,8 +46,8 @@ func text(r string) Parser {
 	}
 }
 
-func regex(r string) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func regex(r string) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		next := scanner.peek()
 
 		if regexp.MustCompile(r).MatchString(next.text) {
@@ -59,18 +59,18 @@ func regex(r string) Parser {
 	}
 }
 
-func separatedBy1(separator Parser, parser Parser) Parser {
-	return all([]Parser{
+func separatedBy1(separator tsqlParser, parser tsqlParser) tsqlParser {
+	return all([]tsqlParser{
 		parser,
-		zeroOrMore(all([]Parser{
+		zeroOrMore(all([]tsqlParser{
 			separator,
 			parser,
 		}, nil)),
 	}, nil)
 }
 
-func zeroOrMore(parser Parser) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func zeroOrMore(parser tsqlParser) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		var results []interface{}
 
 		for {
@@ -85,8 +85,8 @@ func zeroOrMore(parser Parser) Parser {
 	}
 }
 
-func all(parsers []Parser, nodify NodifyMany) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func all(parsers []tsqlParser, nodify nodifyMany) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		start := scanner.position
 		matchesAll := true
 		var tokens [][]item
@@ -112,8 +112,8 @@ func all(parsers []Parser, nodify NodifyMany) Parser {
 	}
 }
 
-func oneOf(parsers []Parser, nodify Nodify) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func oneOf(parsers []tsqlParser, nodify nodify) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		start := scanner.position
 
 		for _, parser := range parsers {
@@ -134,8 +134,8 @@ func oneOf(parsers []Parser, nodify Nodify) Parser {
 	}
 }
 
-func optional(parser Parser, nodify Nodify) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func optional(parser tsqlParser, nodify nodify) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		start := scanner.position
 
 		if success, _ := parser(scanner); success {
@@ -153,8 +153,8 @@ func optional(parser Parser, nodify Nodify) Parser {
 	}
 }
 
-func required(parser Parser, nodify Nodify) Parser {
-	return func(scanner *TSQLScanner) (bool, interface{}) {
+func required(parser tsqlParser, nodify nodify) tsqlParser {
+	return func(scanner *tsqlScanner) (bool, interface{}) {
 		start := scanner.position
 
 		if success, result := parser(scanner); success {
