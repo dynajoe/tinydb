@@ -1,4 +1,4 @@
-package parsing
+package engine
 
 import (
 	"fmt"
@@ -10,10 +10,19 @@ type TableMetadata struct {
 	Columns []ColumnDefinition `json:"columns"`
 }
 
+type ColumnReference struct {
+	table      string
+	alias      string
+	index      int
+	definition ColumnDefinition
+}
+
 type ExecutionEnvironment struct {
-	ColumnLookup map[string]int
-	Tables       map[string]TableMetadata
+	ColumnLookup map[string]*ColumnReference
+	Tables       map[string]*TableMetadata
 	Columns      []string
+	Indexes      map[string]*BTree
+	Engine       *Engine
 }
 
 type EvaluatedExpression struct {
@@ -25,8 +34,8 @@ func Evaluate(expression Expression, data []string, environment *ExecutionEnviro
 }
 
 func (o *BinaryOperation) Evaluate(data []string, environment *ExecutionEnvironment) EvaluatedExpression {
-	left := o.Left.Evaluate(data, environment).Value
-	right := o.Right.Evaluate(data, environment).Value
+	left := Evaluate(o.Left, data, environment).Value
+	right := Evaluate(o.Right, data, environment).Value
 
 	switch o.Operator {
 	case "+":
@@ -81,7 +90,7 @@ func (l *BasicLiteral) Evaluate(data []string, environment *ExecutionEnvironment
 func (l *Ident) Evaluate(data []string, environment *ExecutionEnvironment) EvaluatedExpression {
 	if columnIndex, ok := environment.ColumnLookup[l.Value]; ok {
 		return EvaluatedExpression{
-			Value: data[columnIndex],
+			Value: data[columnIndex.index],
 		}
 	}
 
