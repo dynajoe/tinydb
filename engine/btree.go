@@ -2,8 +2,16 @@ package engine
 
 import "sort"
 
+// Item represents an item in the B-Tree
 type Item interface {
 	Less(than Item) bool
+}
+
+// BTree is a B-Tree
+type BTree struct {
+	degree int
+	length int
+	root   *node
 }
 
 type children []*node
@@ -15,17 +23,47 @@ type node struct {
 	children children
 }
 
-type BTree struct {
-	degree int
-	length int
-	root   *node
-}
-
+// New creates a B-Tree with the specified degree
 func New(degree int) *BTree {
 	return &BTree{
 		degree: degree,
 		length: 0,
 	}
+}
+
+// Find locates the item in the B-Tree or returns nil if not found or the tree is empty
+func (b *BTree) Find(item Item) Item {
+	if b.root == nil {
+		return nil
+	}
+
+	return b.root.find(item)
+}
+
+// Insert inserts an item into the B-Tree
+func (b *BTree) Insert(item Item) Item {
+	if b.root == nil {
+		b.root = newNodeWithItem(item)
+		b.length++
+		return item
+	}
+
+	// Is the root node full?
+	if len(b.root.items) >= b.maxItems() {
+		// the root node needs to be split and children need to be added.
+		splitItem, newChild := b.root.split(b.maxItems() / 2)
+		oldRoot := b.root
+		b.root = newNodeWithItem(splitItem)
+		b.root.children = append(b.root.children, oldRoot, newChild)
+	}
+
+	replacedItem := b.root.insert(item, b.maxItems())
+
+	if replacedItem == nil {
+		b.length++
+	}
+
+	return replacedItem
 }
 
 func newNode() *node {
@@ -143,47 +181,14 @@ func newNodeWithItem(item Item) *node {
 	return node
 }
 
-func (b *BTree) Find(item Item) Item {
-	if b.root == nil {
-		return nil
-	}
-
-	return b.root.find(item)
-}
-
 func (n *node) find(item Item) Item {
 	i, found := n.items.find(item)
 
 	if found {
 		return n.items[i]
-	} else {
-		return n.children[i].find(item)
 	}
-}
 
-func (b *BTree) Insert(item Item) Item {
-	if b.root == nil {
-		b.root = newNodeWithItem(item)
-		b.length++
-		return item
-	} else {
-		// Is the root node full?
-		if len(b.root.items) >= b.maxItems() {
-			// the root node needs to be split and children need to be added.
-			splitItem, newChild := b.root.split(b.maxItems() / 2)
-			oldRoot := b.root
-			b.root = newNodeWithItem(splitItem)
-			b.root.children = append(b.root.children, oldRoot, newChild)
-		}
-
-		replacedItem := b.root.insert(item, b.maxItems())
-
-		if replacedItem == nil {
-			b.length++
-		}
-
-		return replacedItem
-	}
+	return n.children[i].find(item)
 }
 
 func (n *node) insert(item Item, maxItems int) Item {
