@@ -3,6 +3,8 @@ package engine
 import (
 	"io"
 	"log"
+
+	"github.com/joeandaverde/tinydb/btree"
 )
 
 // ResultSet is the result of a query; rows are provided asynchronously
@@ -18,13 +20,13 @@ type nestedLoop struct {
 }
 
 type indexScan struct {
-	index  *BTree
+	index  *btree.BTree
 	value  string
 	column *ColumnReference
 }
 
 type sequenceScan struct {
-	table  *TableMetadata
+	table  *TableDefinition
 	filter Expression
 }
 
@@ -216,7 +218,7 @@ func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatemen
 }
 
 func doSelect(engine *Engine, selectStatement *SelectStatement) (*ResultSet, error) {
-	environment, err := getExecutionEnvironment(engine, selectStatement.From)
+	environment, err := newExecutionEnvironment(engine, selectStatement.From)
 
 	if err != nil {
 		return nil, err

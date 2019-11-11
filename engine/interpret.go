@@ -3,9 +3,11 @@ package engine
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/joeandaverde/tinydb/btree"
 )
 
-type TableMetadata struct {
+type TableDefinition struct {
 	Name    string             `json:"name"`
 	Columns []ColumnDefinition `json:"columns"`
 }
@@ -19,9 +21,9 @@ type ColumnReference struct {
 
 type ExecutionEnvironment struct {
 	ColumnLookup map[string]*ColumnReference
-	Tables       map[string]*TableMetadata
+	Tables       map[string]*TableDefinition
 	Columns      []string
-	Indexes      map[string]*BTree
+	Indexes      map[string]*btree.BTree
 	Engine       *Engine
 }
 

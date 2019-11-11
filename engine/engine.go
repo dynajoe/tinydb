@@ -14,12 +14,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-)
 
-type Engine struct {
-	Indexes map[string]*BTree
-	Tables  map[string]*TableMetadata
-}
+	"github.com/joeandaverde/tinydb/btree"
+)
 
 type (
 	indexedField struct {
@@ -28,15 +25,26 @@ type (
 	}
 
 	pkJob struct {
-		table      *TableMetadata
+		table      *TableDefinition
 		fieldIndex int
-		result     *BTree
+		result     *btree.BTree
+	}
+
+	// Engine holds metadata and indexes about the database
+	Engine struct {
+		Indexes map[string]*btree.BTree
+		Tables  map[string]*TableDefinition
 	}
 )
 
+func (f *indexedField) Less(than btree.Item) bool {
+	return f.value < than.(*indexedField).value
+}
+
+// Start initializes a new TinyDb database engine
 func Start() *Engine {
 	log.Info("Starting database engine")
-	tables := loadTables()
+	tables := loadTableDefinitions()
 	indexes := buildIndexes(tables)
 
 	return &Engine{
@@ -45,16 +53,17 @@ func Start() *Engine {
 	}
 }
 
-func Run(engine *Engine, text string) {
+// Execute runs a statement against the database engine
+func Execute(engine *Engine, text string) {
 	log.Debug("EXEC: ", text)
 	result := Parse(strings.TrimSpace(text))
 
 	if result != nil {
-		ExecuteStatement(engine, result)
+		executeStatement(engine, result)
 	}
 }
 
-func ExecuteStatement(engine *Engine, statement Statement) {
+func executeStatement(engine *Engine, statement Statement) {
 	switch s := (statement).(type) {
 	case *CreateTableStatement:
 		if _, err := createTable(engine, s); err != nil {
@@ -83,10 +92,6 @@ func ExecuteStatement(engine *Engine, statement Statement) {
 	}
 }
 
-func (f *indexedField) Less(than Item) bool {
-	return f.value < than.(*indexedField).value
-}
-
 func newTableScanner(tableName string) (*csv.Reader, error) {
 	csvFile, err := os.Open(filepath.Join("./tsql_data/", tableName, "/data.csv"))
 
@@ -100,7 +105,7 @@ func newTableScanner(tableName string) (*csv.Reader, error) {
 }
 
 func buildIndex(job *pkJob) {
-	btree := New(5)
+	btree := btree.New(5)
 
 	csvReader, err := newTableScanner(job.table.Name)
 
@@ -129,8 +134,8 @@ func buildIndex(job *pkJob) {
 	job.result = btree
 }
 
-func buildIndexes(m map[string]*TableMetadata) map[string]*BTree {
-	indexes := make(map[string]*BTree)
+func buildIndexes(m map[string]*TableDefinition) map[string]*btree.BTree {
+	indexes := make(map[string]*btree.BTree)
 	results := make(chan *pkJob)
 
 	var wg sync.WaitGroup
@@ -139,7 +144,7 @@ func buildIndexes(m map[string]*TableMetadata) map[string]*BTree {
 		for i, c := range t.Columns {
 			if c.PrimaryKey {
 				wg.Add(1)
-				go func(i int, t *TableMetadata) {
+				go func(i int, t *TableDefinition) {
 					defer wg.Done()
 					job := &pkJob{fieldIndex: i, table: t}
 					buildIndex(job)
@@ -161,8 +166,8 @@ func buildIndexes(m map[string]*TableMetadata) map[string]*BTree {
 	return indexes
 }
 
-func loadTables() map[string]*TableMetadata {
-	tableMetadata := make(map[string]*TableMetadata)
+func loadTableDefinitions() map[string]*TableDefinition {
+	tableDefinitions := make(map[string]*TableDefinition)
 
 	filepath.Walk("./tsql_data", func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -176,26 +181,26 @@ func loadTables() map[string]*TableMetadata {
 				panic("unable to load tables")
 			}
 
-			var metadata TableMetadata
-			err = json.Unmarshal(data, &metadata)
+			var tableDefinition TableDefinition
+			err = json.Unmarshal(data, &tableDefinition)
 
 			if err != nil {
 				panic("unable to load tables")
 			}
 
-			tableMetadata[metadata.Name] = &metadata
+			tableDefinitions[tableDefinition.Name] = &tableDefinition
 		}
 
 		return nil
 	})
 
-	return tableMetadata
+	return tableDefinitions
 }
 
-func getExecutionEnvironment(engine *Engine, tables []TableAlias) (*ExecutionEnvironment, error) {
+func newExecutionEnvironment(engine *Engine, tables []TableAlias) (*ExecutionEnvironment, error) {
 	columnLookup := make(map[string]*ColumnReference)
-	tableMetadata := make(map[string]*TableMetadata)
-	allMetadata := make([]*TableMetadata, len(tables))
+	tableMetadata := make(map[string]*TableDefinition)
+	allMetadata := make([]*TableDefinition, len(tables))
 
 	i := 0
 	for _, tableAlias := range tables {

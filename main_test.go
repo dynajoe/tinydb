@@ -1,9 +1,13 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/joeandaverde/tinydb/engine"
+)
 
 func TestSelectStar(t *testing.T) {
-	selectStatement := Parse("SELECT * FROM foo")
+	selectStatement := engine.Parse("SELECT * FROM foo")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -11,7 +15,7 @@ func TestSelectStar(t *testing.T) {
 }
 
 func TestSelectColumns(t *testing.T) {
-	selectStatement := Parse("SELECT a, b FROM foo")
+	selectStatement := engine.Parse("SELECT a, b FROM foo")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -19,7 +23,7 @@ func TestSelectColumns(t *testing.T) {
 }
 
 func TestSelectFromMultipleTables(t *testing.T) {
-	selectStatement := Parse("SELECT a, b FROM foo, bar")
+	selectStatement := engine.Parse("SELECT a, b FROM foo, bar")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -27,7 +31,7 @@ func TestSelectFromMultipleTables(t *testing.T) {
 }
 
 func TestSelectWhereClause(t *testing.T) {
-	selectStatement := Parse("SELECT a, b FROM foo, bar WHERE a = 1")
+	selectStatement := engine.Parse("SELECT a, b FROM foo, bar WHERE a = 1")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
