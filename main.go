@@ -44,7 +44,7 @@ func main() {
 			continue
 		}
 
-		engine.Run(e, scanner.Text())
+		engine.Execute(e, scanner.Text())
 	}
 
 	if err := scanner.Err(); err != nil {

@@ -14,7 +14,7 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, e
 	var emptyTables []TableAlias
 	var emptyColumns []string
 
-	environment, err := getExecutionEnvironment(engine, emptyTables)
+	environment, err := newExecutionEnvironment(engine, emptyTables)
 
 	for k, v := range insertStatement.Values {
 		fmt.Printf("inserting %s in %s\n", v, k)

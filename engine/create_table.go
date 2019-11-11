@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableMetadata, error) {
+func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableDefinition, error) {
 	tablePath := filepath.Join("./tsql_data/", strings.ToLower(createStatement.TableName))
 
 	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
@@ -29,7 +29,7 @@ func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableM
 
 	w := bufio.NewWriter(f)
 
-	tableMetadata := TableMetadata{
+	tableMetadata := TableDefinition{
 		Name:    createStatement.TableName,
 		Columns: createStatement.Columns,
 	}
