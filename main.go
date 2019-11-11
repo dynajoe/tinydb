@@ -35,7 +35,7 @@ func main() {
 	}
 
 	scanner.Split(onSemicolon)
-	e := engine.Start()
+	e := engine.Start(".")
 
 	for scanner.Scan() {
 		text := scanner.Text()

@@ -34,8 +34,19 @@ type planItem interface {
 	execute(*Engine, *ExecutionEnvironment) (*ResultSet, error)
 }
 
+func emptyResultSet() *ResultSet {
+	rows := make(chan []string)
+	var columns []string
+	close(rows)
+
+	return &ResultSet{
+		Columns: columns,
+		Rows:    rows,
+	}
+}
+
 func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	csvFile, err := newTableScanner(s.table.Name)
+	csvFile, err := newTableScanner(engine.Config, s.table.Name)
 
 	if err != nil {
 		return nil, err
@@ -70,7 +81,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 }
 
 func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	csvFile, err := newTableScanner(s.column.table)
+	csvFile, err := newTableScanner(engine.Config, s.column.table)
 
 	if err != nil {
 		return nil, err

@@ -43,8 +43,9 @@ type SelectStatement struct {
 
 // InsertStatement represents an instruction to insert data into a table and expressions that evaluate to values
 type InsertStatement struct {
-	Table  string
-	Values map[string]Expression
+	Table     string
+	Values    map[string]Expression
+	Returning []string
 }
 
 func (*SelectStatement) kind() string      { return "select-statement" }

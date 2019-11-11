@@ -10,7 +10,7 @@ import (
 )
 
 func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableDefinition, error) {
-	tablePath := filepath.Join("./tsql_data/", strings.ToLower(createStatement.TableName))
+	tablePath := filepath.Join(engine.Config.BasePath, "tsql_data", strings.ToLower(createStatement.TableName))
 
 	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("table already exists")

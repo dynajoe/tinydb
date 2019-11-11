@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -30,10 +31,16 @@ type (
 		result     *btree.BTree
 	}
 
+	// Config describes the configuration for the database
+	Config struct {
+		BasePath string
+	}
+
 	// Engine holds metadata and indexes about the database
 	Engine struct {
 		Indexes map[string]*btree.BTree
 		Tables  map[string]*TableDefinition
+		Config  *Config
 	}
 )
 
@@ -42,58 +49,72 @@ func (f *indexedField) Less(than btree.Item) bool {
 }
 
 // Start initializes a new TinyDb database engine
-func Start() *Engine {
-	log.Info("Starting database engine")
-	tables := loadTableDefinitions()
-	indexes := buildIndexes(tables)
+func Start(basePath string) *Engine {
+	log.Infof("Starting database engine [BasePath: %s]", basePath)
+
+	config := &Config{
+		BasePath: basePath,
+	}
+
+	tables := loadTableDefinitions(config)
+	indexes := buildIndexes(config, tables)
 
 	return &Engine{
 		Tables:  tables,
 		Indexes: indexes,
+		Config:  config,
 	}
 }
 
 // Execute runs a statement against the database engine
-func Execute(engine *Engine, text string) {
+func Execute(engine *Engine, text string) (*ResultSet, error) {
 	log.Debug("EXEC: ", text)
-	result := Parse(strings.TrimSpace(text))
+	statement, err := Parse(strings.TrimSpace(text))
 
-	if result != nil {
-		executeStatement(engine, result)
+	if err != nil {
+		return nil, err
 	}
+
+	if statement != nil {
+		return executeStatement(engine, statement)
+	}
+
+	return nil, fmt.Errorf("Unable to parse statement %s", text)
 }
 
-func executeStatement(engine *Engine, statement Statement) {
+func executeStatement(engine *Engine, statement Statement) (*ResultSet, error) {
+	startingTime := time.Now().UTC()
+	defer (func() {
+		duration := time.Now().UTC().Sub(startingTime)
+		fmt.Printf("\nDuration: %s\n", duration)
+	})()
+
 	switch s := (statement).(type) {
 	case *CreateTableStatement:
 		if _, err := createTable(engine, s); err != nil {
-			fmt.Println(err)
+			return nil, err
 		}
+
+		engine.Tables = loadTableDefinitions(engine.Config)
+
+		return emptyResultSet(), nil
 	case *InsertStatement:
-		if _, err := doInsert(engine, s); err != nil {
-			fmt.Println(err)
+		_, result, err := doInsert(engine, s)
+
+		if err != nil {
+			return nil, err
 		}
+
+		return result, nil
 	case *SelectStatement:
-		startingTime := time.Now().UTC()
-		i := 0
-
-		if result, err := doSelect(engine, s); err != nil {
-			fmt.Println(err)
-		} else {
-			for row := range result.Rows {
-				fmt.Println(row)
-				i++
-			}
-		}
-
-		duration := time.Now().UTC().Sub(startingTime)
-
-		fmt.Printf("\n%d rows (%s)\n", i, duration)
+		return doSelect(engine, s)
 	}
+
+	return nil, fmt.Errorf("Unexpected statement type")
 }
 
-func newTableScanner(tableName string) (*csv.Reader, error) {
-	csvFile, err := os.Open(filepath.Join("./tsql_data/", tableName, "/data.csv"))
+func newTableScanner(config *Config, tableName string) (*csv.Reader, error) {
+	csvFile, err := os.Open(filepath.Join(config.BasePath, "tsql_data", tableName, "data.csv"))
 
 	if err != nil {
 		return nil, err
@@ -104,10 +125,10 @@ func newTableScanner(tableName string) (*csv.Reader, error) {
 	return tableCsv, nil
 }
 
-func buildIndex(job *pkJob) {
+func buildIndex(config *Config, job *pkJob) {
 	btree := btree.New(5)
 
-	csvReader, err := newTableScanner(job.table.Name)
+	csvReader, err := newTableScanner(config, job.table.Name)
 
 	if err != nil {
 		panic("unable to build index")
@@ -134,7 +155,7 @@ func buildIndex(job *pkJob) {
 	job.result = btree
 }
 
-func buildIndexes(m map[string]*TableDefinition) map[string]*btree.BTree {
+func buildIndexes(config *Config, m map[string]*TableDefinition) map[string]*btree.BTree {
 	indexes := make(map[string]*btree.BTree)
 	results := make(chan *pkJob)
 
@@ -147,7 +168,7 @@ func buildIndexes(m map[string]*TableDefinition) map[string]*btree.BTree {
 				go func(i int, t *TableDefinition) {
 					defer wg.Done()
 					job := &pkJob{fieldIndex: i, table: t}
-					buildIndex(job)
+					buildIndex(config, job)
 					results <- job
 				}(i, t)
 			}
@@ -166,10 +187,10 @@ func buildIndexes(m map[string]*TableDefinition) map[string]*btree.BTree {
 	return indexes
 }
 
-func loadTableDefinitions() map[string]*TableDefinition {
+func loadTableDefinitions(config *Config) map[string]*TableDefinition {
 	tableDefinitions := make(map[string]*TableDefinition)
 
-	filepath.Walk("./tsql_data", func(p string, info os.FileInfo, err error) error {
+	filepath.Walk(path.Join(config.BasePath, "tsql_data"), func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
