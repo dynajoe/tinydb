@@ -6,30 +6,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
 )
 
-func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, err error) {
-	fmt.Printf("inserting the heck out of %s\n", insertStatement.Table)
+func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, returning *ResultSet, err error) {
+	log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
 
 	var emptyTables []TableAlias
 	var emptyColumns []string
 
 	environment, err := newExecutionEnvironment(engine, emptyTables)
 
-	for k, v := range insertStatement.Values {
-		fmt.Printf("inserting %s in %s\n", v, k)
+	if err != nil {
+		return 0, nil, err
 	}
 
-	metadata := engine.Tables[insertStatement.Table]
+	metadata, ok := engine.Tables[insertStatement.Table]
 
-	if err != nil {
-		return 0, err
+	if !ok {
+		return 0, nil, fmt.Errorf("Unable to locate table %s", insertStatement.Table)
 	}
 
-	dataFile, err := os.OpenFile(filepath.Join("./tsql_data/", insertStatement.Table, "/data.csv"), os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
+	dataFilePath := filepath.Join(engine.Config.BasePath, "tsql_data", insertStatement.Table, "data.csv")
+	dataFile, err := os.OpenFile(dataFilePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
 
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	defer func() {
@@ -39,7 +42,7 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, e
 	}()
 
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	writer := bufio.NewWriter(dataFile)
@@ -59,8 +62,8 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, e
 	csvWriter := csv.NewWriter(writer)
 
 	if err := csvWriter.Write(values); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return 1, nil
+	return 0, emptyResultSet(), nil
 }

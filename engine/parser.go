@@ -1,5 +1,9 @@
 package engine
 
+import (
+	"fmt"
+)
+
 type tsqlParser func(*tsqlScanner) (bool, interface{})
 
 type tsqlOpParser func(*tsqlScanner) (bool, string)
@@ -17,7 +21,7 @@ type expressionMaker func(op string, a Expression, b Expression) Expression
 type expressionParser func(scanner *tsqlScanner) (bool, Expression)
 
 // Parse - parses TinySql statements
-func Parse(sql string) Statement {
+func Parse(sql string) (Statement, error) {
 	scanner := &tsqlScanner{
 		lexer:    lex("tsql", sql),
 		input:    sql,
@@ -25,22 +29,30 @@ func Parse(sql string) Statement {
 		position: 0,
 	}
 
-	if createStatement := parseCreateTable(scanner); createStatement != nil {
-		return createStatement
+	makeParseError := func(statementType string, err error) error {
+		if err != nil {
+			return fmt.Errorf("Failed parsing [%s] at [%s]", statementType, scanner.committed)
+		}
+
+		return nil
 	}
 
-	if insertStatement := parseInsert(scanner); insertStatement != nil {
-		return insertStatement
+	if createStatement, err := parseCreateTable(scanner); createStatement != nil || err != nil {
+		return createStatement, makeParseError("CREATE", err)
 	}
 
-	if selectStatement := parseSelect(scanner); selectStatement != nil {
-		return selectStatement
+	if insertStatement, err := parseInsert(scanner); insertStatement != nil || err != nil {
+		return insertStatement, makeParseError("INSERT", err)
 	}
 
-	return nil
+	if selectStatement, err := parseSelect(scanner); selectStatement != nil || err != nil {
+		return selectStatement, makeParseError("SELECT", err)
+	}
+
+	return nil, nil
 }
 
-func parseCreateTable(scanner *tsqlScanner) Statement {
+func parseCreateTable(scanner *tsqlScanner) (*CreateTableStatement, error) {
 	createTableStatement := &CreateTableStatement{}
 	flags := make(map[string]string)
 
@@ -102,13 +114,13 @@ func parseCreateTable(scanner *tsqlScanner) Statement {
 		}, nil))
 
 	if result {
-		return createTableStatement
+		return createTableStatement, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
-func parseInsert(scanner *tsqlScanner) *InsertStatement {
+func parseInsert(scanner *tsqlScanner) (*InsertStatement, error) {
 	insertTableStatement := &InsertStatement{}
 
 	var columns []string
@@ -151,10 +163,24 @@ func parseInsert(scanner *tsqlScanner) *InsertStatement {
 			),
 			optionalToken(tsqlWhiteSpace),
 			requiredToken(tsqlCloseParen, nil),
+			optional(all([]tsqlParser{
+				requiredToken(tsqlWhiteSpace, nil),
+				text("RETURNING"),
+				requiredToken(tsqlWhiteSpace, nil),
+				committed("RETURNING_COLUMNS", separatedBy1(
+					commaSeparator(),
+					oneOf([]tsqlParser{
+						requiredToken(tsqlIdentifier, nil),
+						requiredToken(tsqlAsterisk, nil),
+					}, func(token []item) {
+						insertTableStatement.Returning = append(insertTableStatement.Returning, token[0].text)
+					}),
+				)),
+			}, nil), nil),
 		}, nil))
 
 	if !result {
-		return nil
+		return nil, nil
 	}
 
 	// if columns and values are not of same length or are empty blow up
@@ -163,7 +189,7 @@ func parseInsert(scanner *tsqlScanner) *InsertStatement {
 	numValues := len(values)
 
 	if numColumns != numValues {
-		return nil
+		return nil, nil
 	}
 
 	insertTableStatement.Values = make(map[string]Expression)
@@ -172,10 +198,10 @@ func parseInsert(scanner *tsqlScanner) *InsertStatement {
 		insertTableStatement.Values[columns[i]] = values[i]
 	}
 
-	return insertTableStatement
+	return insertTableStatement, nil
 }
 
-func parseSelect(scanner *tsqlScanner) *SelectStatement {
+func parseSelect(scanner *tsqlScanner) (*SelectStatement, error) {
 	selectStatement := &SelectStatement{}
 
 	whereClause :=
@@ -228,15 +254,14 @@ func parseSelect(scanner *tsqlScanner) *SelectStatement {
 			)),
 			optional(whereClause, nil),
 			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlEOF, nil),
 		}, nil),
 	)
 
 	if success {
-		return selectStatement
+		return selectStatement, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 func parseTermExpression() expressionParser {
