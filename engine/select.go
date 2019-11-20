@@ -3,6 +3,7 @@ package engine
 import (
 	"io"
 	"log"
+	"sync"
 
 	"github.com/joeandaverde/tinydb/btree"
 )
@@ -10,7 +11,8 @@ import (
 // ResultSet is the result of a query; rows are provided asynchronously
 type ResultSet struct {
 	Columns []string
-	Rows    chan []string
+	Rows    <-chan []string
+	Error   <-chan error
 }
 
 type nestedLoop struct {
@@ -53,8 +55,12 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 	}
 
 	results := make(chan []string)
+	errorChan := make(chan error, 1)
 
 	go func() {
+		defer close(results)
+		defer close(errorChan)
+
 		for {
 			row, err := csvFile.Read()
 
@@ -62,6 +68,8 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 				break
 			} else if err != nil {
 				log.Fatal(err)
+				errorChan <- err
+				break
 			}
 
 			if s.filter != nil && Evaluate(s.filter, row, env).Value != true {
@@ -70,12 +78,11 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 
 			results <- row
 		}
-
-		close(results)
 	}()
 
 	return &ResultSet{
 		Rows:    results,
+		Error:   errorChan,
 		Columns: nil,
 	}, nil
 }
@@ -88,8 +95,12 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 	}
 
 	results := make(chan []string)
+	errorChan := make(chan error, 1)
 
 	go func() {
+		defer close(results)
+		defer close(errorChan)
+
 		item := s.index.Find(&indexedField{
 			value: s.value,
 		})
@@ -99,10 +110,13 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 			for {
 				row, err := csvFile.Read()
 
-				if err == io.EOF {
+				if err != nil {
+					if err != io.EOF {
+						log.Fatal(err)
+						errorChan <- err
+					}
+
 					break
-				} else if err != nil {
-					log.Fatal(err)
 				}
 
 				offset++
@@ -113,21 +127,56 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 			}
 		}
 
-		close(results)
 	}()
 
 	return &ResultSet{
 		Columns: nil,
+		Error:   errorChan,
 		Rows:    results,
 	}, nil
 }
 
-func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	results := make(chan []string)
+func mergeErrors(chans ...<-chan error) <-chan error {
+	out := make(chan error, len(chans))
+	var wg sync.WaitGroup
+
+	wg.Add(len(chans))
+	for _, c := range chans {
+		go func(c <-chan error) {
+			defer wg.Done()
+			for e := range c {
+				out <- e
+			}
+		}(c)
+	}
 
 	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
+}
+
+func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
+	results := make(chan []string)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(results)
+
 		outerStatement, _ := optimize(s.outer, engine, env).execute(engine, env)
 		innerStatement, _ := optimize(s.inner, engine, env).execute(engine, env)
+
+		innerErrors := mergeErrors(outerStatement.Error, innerStatement.Error)
+
+		go func() {
+			defer close(errorChan)
+
+			for e := range innerErrors {
+				errorChan <- e
+			}
+		}()
 
 		// Materialize the inner dataset, ideally filter
 		innerRows := make([][]string, 0)
@@ -147,13 +196,12 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 				results <- row
 			}
 		}
-
-		close(results)
 	}()
 
 	return &ResultSet{
 		Columns: nil,
 		Rows:    results,
+		Error:   errorChan,
 	}, nil
 }
 
