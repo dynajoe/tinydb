@@ -33,13 +33,15 @@ type (
 
 	// Config describes the configuration for the database
 	Config struct {
-		BasePath string
+		BasePath string `yaml:"base_path"`
+		Addr     string `yaml:"listen"`
 	}
 
 	// Engine holds metadata and indexes about the database
 	Engine struct {
 		Indexes map[string]*btree.BTree
 		Tables  map[string]*TableDefinition
+		Log     *log.Logger
 		Config  *Config
 	}
 )
@@ -58,16 +60,18 @@ func Start(basePath string) *Engine {
 
 	tables := loadTableDefinitions(config)
 	indexes := buildIndexes(config, tables)
+	logger := log.New()
 
 	return &Engine{
 		Tables:  tables,
 		Indexes: indexes,
 		Config:  config,
+		Log:     logger,
 	}
 }
 
 // Execute runs a statement against the database engine
-func Execute(engine *Engine, text string) (*ResultSet, error) {
+func (e *Engine) Execute(text string) (*ResultSet, error) {
 	log.Debug("EXEC: ", text)
 	statement, err := Parse(strings.TrimSpace(text))
 
@@ -76,7 +80,7 @@ func Execute(engine *Engine, text string) (*ResultSet, error) {
 	}
 
 	if statement != nil {
-		return executeStatement(engine, statement)
+		return executeStatement(e, statement)
 	}
 
 	return nil, fmt.Errorf("Unable to parse statement %s", text)
