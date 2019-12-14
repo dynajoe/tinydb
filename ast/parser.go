@@ -1,37 +1,37 @@
-package engine
+package ast
 
 import (
 	"fmt"
 )
 
-type tsqlParser func(*tsqlScanner) (bool, interface{})
+type tsqlParser func(*tinyScanner) (bool, interface{})
 
-type tsqlOpParser func(*tsqlScanner) (bool, string)
+type tsqlOpParser func(*tinyScanner) (bool, string)
 
-type nodify func(tokens []item)
+type nodify func(tokens []TinyDBItem)
 
-type nodifyMany func(tokens [][]item)
+type nodifyMany func(tokens [][]TinyDBItem)
 
 type nodifyExpression func(expr Expression)
 
-type nodifyOperator func(tokens []item) string
+type nodifyOperator func(tokens []TinyDBItem) string
 
 type expressionMaker func(op string, a Expression, b Expression) Expression
 
-type expressionParser func(scanner *tsqlScanner) (bool, Expression)
+type expressionParser func(scanner *tinyScanner) (bool, Expression)
 
 // Parse - parses TinySql statements
 func Parse(sql string) (Statement, error) {
-	scanner := &tsqlScanner{
-		lexer:    lex("tsql", sql),
+	scanner := &tinyScanner{
+		lexer:    NewLexer(sql),
 		input:    sql,
-		items:    []item{},
+		items:    []TinyDBItem{},
 		position: 0,
 	}
 
 	makeParseError := func(statementType string, err error) error {
 		if err != nil {
-			return fmt.Errorf("Failed parsing [%s] at [%s]", statementType, scanner.committed)
+			return fmt.Errorf("failed parsing [%s] at [%s]", statementType, scanner.committed)
 		}
 
 		return nil
@@ -52,7 +52,7 @@ func Parse(sql string) (Statement, error) {
 	return nil, nil
 }
 
-func parseCreateTable(scanner *tsqlScanner) (*CreateTableStatement, error) {
+func parseCreateTable(scanner *tinyScanner) (*CreateTableStatement, error) {
 	createTableStatement := &CreateTableStatement{}
 	flags := make(map[string]string)
 
@@ -69,11 +69,11 @@ func parseCreateTable(scanner *tsqlScanner) (*CreateTableStatement, error) {
 				requiredToken(tsqlWhiteSpace, nil),
 				text("EXISTS"),
 				requiredToken(tsqlWhiteSpace, nil),
-			}, nil), func(token []item) {
+			}, nil), func(token []TinyDBItem) {
 				createTableStatement.IfNotExists = true
 			}),
-			requiredToken(tsqlIdentifier, func(token []item) {
-				createTableStatement.TableName = token[0].text
+			requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
+				createTableStatement.TableName = token[0].Text
 			}),
 			optionalToken(tsqlWhiteSpace),
 			requiredToken(tsqlOpenParen, nil),
@@ -89,13 +89,13 @@ func parseCreateTable(scanner *tsqlScanner) (*CreateTableStatement, error) {
 						text("PRIMARY"),
 						requiredToken(tsqlWhiteSpace, nil),
 						text("KEY"),
-					}, nil), func(tokens []item) {
+					}, nil), func(tokens []TinyDBItem) {
 						flags["primary_key"] = "true"
 					}),
 					optionalToken(tsqlWhiteSpace),
-				}, func(tokens [][]item) {
-					columnName := tokens[1][0].text
-					columnType := tokens[3][0].text
+				}, func(tokens [][]TinyDBItem) {
+					columnName := tokens[1][0].Text
+					columnType := tokens[3][0].Text
 
 					_, isPrimaryKey := flags["primary_key"]
 
@@ -120,7 +120,7 @@ func parseCreateTable(scanner *tsqlScanner) (*CreateTableStatement, error) {
 	return nil, nil
 }
 
-func parseInsert(scanner *tsqlScanner) (*InsertStatement, error) {
+func parseInsert(scanner *tinyScanner) (*InsertStatement, error) {
 	insertTableStatement := &InsertStatement{}
 
 	var columns []string
@@ -132,16 +132,16 @@ func parseInsert(scanner *tsqlScanner) (*InsertStatement, error) {
 			requiredToken(tsqlWhiteSpace, nil),
 			requiredToken(tsqlInto, nil),
 			requiredToken(tsqlWhiteSpace, nil),
-			requiredToken(tsqlIdentifier, func(token []item) {
-				insertTableStatement.Table = token[0].text
+			requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
+				insertTableStatement.Table = token[0].Text
 			}),
 			optionalToken(tsqlWhiteSpace),
 			requiredToken(tsqlOpenParen, nil),
 			separatedBy1(requiredToken(tsqlComma, nil),
 				all([]tsqlParser{
 					optionalToken(tsqlWhiteSpace),
-					requiredToken(tsqlIdentifier, func(token []item) {
-						columns = append(columns, token[0].text)
+					requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
+						columns = append(columns, token[0].Text)
 					}),
 				}, nil),
 			),
@@ -172,8 +172,8 @@ func parseInsert(scanner *tsqlScanner) (*InsertStatement, error) {
 					oneOf([]tsqlParser{
 						requiredToken(tsqlIdentifier, nil),
 						requiredToken(tsqlAsterisk, nil),
-					}, func(token []item) {
-						insertTableStatement.Returning = append(insertTableStatement.Returning, token[0].text)
+					}, func(token []TinyDBItem) {
+						insertTableStatement.Returning = append(insertTableStatement.Returning, token[0].Text)
 					}),
 				)),
 			}, nil), nil),
@@ -201,7 +201,7 @@ func parseInsert(scanner *tsqlScanner) (*InsertStatement, error) {
 	return insertTableStatement, nil
 }
 
-func parseSelect(scanner *tsqlScanner) (*SelectStatement, error) {
+func parseSelect(scanner *tinyScanner) (*SelectStatement, error) {
 	selectStatement := &SelectStatement{}
 
 	whereClause :=
@@ -223,8 +223,8 @@ func parseSelect(scanner *tsqlScanner) (*SelectStatement, error) {
 				oneOf([]tsqlParser{
 					requiredToken(tsqlIdentifier, nil),
 					requiredToken(tsqlAsterisk, nil),
-				}, func(token []item) {
-					selectStatement.Columns = append(selectStatement.Columns, token[0].text)
+				}, func(token []TinyDBItem) {
+					selectStatement.Columns = append(selectStatement.Columns, token[0].Text)
 				}),
 			)),
 			requiredToken(tsqlWhiteSpace, nil),
@@ -238,16 +238,16 @@ func parseSelect(scanner *tsqlScanner) (*SelectStatement, error) {
 						requiredToken(tsqlWhiteSpace, nil),
 						requiredToken(tsqlIdentifier, nil),
 					}, nil), nil),
-				}, func(tokens [][]item) {
+				}, func(tokens [][]TinyDBItem) {
 					if len(tokens[1]) > 0 {
 						selectStatement.From = append(selectStatement.From, TableAlias{
-							name:  tokens[0][0].text,
-							alias: tokens[1][1].text,
+							Name:  tokens[0][0].Text,
+							Alias: tokens[1][1].Text,
 						})
 					} else {
 						selectStatement.From = append(selectStatement.From, TableAlias{
-							name:  tokens[0][0].text,
-							alias: tokens[0][0].text,
+							Name:  tokens[0][0].Text,
+							Alias: tokens[0][0].Text,
 						})
 					}
 				}),
@@ -265,7 +265,7 @@ func parseSelect(scanner *tsqlScanner) (*SelectStatement, error) {
 }
 
 func parseTermExpression() expressionParser {
-	return func(scanner *tsqlScanner) (bool, Expression) {
+	return func(scanner *tinyScanner) (bool, Expression) {
 		var expr Expression
 
 		success, _ := scanner.run(
@@ -274,7 +274,7 @@ func parseTermExpression() expressionParser {
 					expr = expression
 				}),
 				parens(lazy(func() tsqlParser {
-					return func(scanner *tsqlScanner) (bool, interface{}) {
+					return func(scanner *tinyScanner) (bool, interface{}) {
 						s, e := parseExpression()(scanner)
 
 						if s {
@@ -302,10 +302,10 @@ func makeBinaryExpression() expressionMaker {
 }
 
 func operatorParser(opParser tsqlParser, nodifyOperator nodifyOperator) tsqlOpParser {
-	return func(scanner *tsqlScanner) (bool, string) {
+	return func(scanner *tinyScanner) (bool, string) {
 		var opText string
 
-		success, _ := required(opParser, func(x []item) {
+		success, _ := required(opParser, func(x []TinyDBItem) {
 			opText = nodifyOperator(x)
 		})(scanner)
 
@@ -314,8 +314,8 @@ func operatorParser(opParser tsqlParser, nodifyOperator nodifyOperator) tsqlOpPa
 }
 
 func comparison() tsqlOpParser {
-	return operatorParser(operator(`=`), func(tokens []item) string {
-		return tokens[1].text
+	return operatorParser(operator(`=`), func(tokens []TinyDBItem) string {
+		return tokens[1].Text
 	})
 }
 
@@ -323,8 +323,8 @@ func logical() tsqlOpParser {
 	return operatorParser(oneOf([]tsqlParser{
 		operator(`AND`),
 		operator(`OR`),
-	}, nil), func(tokens []item) string {
-		return tokens[1].text
+	}, nil), func(tokens []TinyDBItem) string {
+		return tokens[1].Text
 	})
 }
 
@@ -332,8 +332,8 @@ func mult() tsqlOpParser {
 	return operatorParser(oneOf([]tsqlParser{
 		operator(`\*`),
 		operator(`/`),
-	}, nil), func(tokens []item) string {
-		return tokens[1].text
+	}, nil), func(tokens []TinyDBItem) string {
+		return tokens[1].Text
 	})
 }
 
@@ -341,8 +341,8 @@ func sum() tsqlOpParser {
 	return operatorParser(oneOf([]tsqlParser{
 		operator(`\+`),
 		operator(`-`),
-	}, nil), func(tokens []item) string {
-		return tokens[1].text
+	}, nil), func(tokens []TinyDBItem) string {
+		return tokens[1].Text
 	})
 }
 
@@ -368,34 +368,34 @@ func parseExpression() expressionParser {
 
 func parseTerm(nodify nodifyExpression) tsqlParser {
 	return oneOf([]tsqlParser{
-		requiredToken(tsqlIdentifier, func(token []item) {
+		requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
 			if nodify != nil {
 				nodify(&Ident{
-					Value: token[0].text,
+					Value: token[0].Text,
 				})
 			}
 		}),
-		requiredToken(tsqlString, func(token []item) {
+		requiredToken(tsqlString, func(token []TinyDBItem) {
 			if nodify != nil {
 				nodify(&BasicLiteral{
-					Value:     token[0].text[1 : len(token[0].text)-1],
-					TokenType: token[0].token,
+					Value:     token[0].Text[1 : len(token[0].Text)-1],
+					TokenType: token[0].Token,
 				})
 			}
 		}),
-		requiredToken(tsqlNumber, func(token []item) {
+		requiredToken(tsqlNumber, func(token []TinyDBItem) {
 			if nodify != nil {
 				nodify(&BasicLiteral{
-					Value:     token[0].text,
-					TokenType: token[0].token,
+					Value:     token[0].Text,
+					TokenType: token[0].Token,
 				})
 			}
 		}),
-		requiredToken(tsqlBoolean, func(token []item) {
+		requiredToken(tsqlBoolean, func(token []TinyDBItem) {
 			if nodify != nil {
 				nodify(&BasicLiteral{
-					Value:     token[0].text,
-					TokenType: token[0].token,
+					Value:     token[0].Text,
+					TokenType: token[0].Token,
 				})
 			}
 		}),
@@ -403,9 +403,9 @@ func parseTerm(nodify nodifyExpression) tsqlParser {
 }
 
 func optionalToken(expected Token) tsqlParser {
-	return func(scanner *tsqlScanner) (bool, interface{}) {
-		if scanner.peek().token == expected {
-			scanner.next()
+	return func(scanner *tinyScanner) (bool, interface{}) {
+		if scanner.Peek().Token == expected {
+			scanner.Next()
 		}
 
 		return true, nil
@@ -413,8 +413,8 @@ func optionalToken(expected Token) tsqlParser {
 }
 
 func requiredToken(expected Token, nodify nodify) tsqlParser {
-	return required(func(scanner *tsqlScanner) (bool, interface{}) {
-		if scanner.next().token == expected {
+	return required(func(scanner *tinyScanner) (bool, interface{}) {
+		if scanner.Next().Token == expected {
 			return true, nil
 		}
 
@@ -454,7 +454,7 @@ func keyword(token Token) tsqlParser {
 }
 
 func makeExpressionParser(nodify nodifyExpression) tsqlParser {
-	return func(scanner *tsqlScanner) (bool, interface{}) {
+	return func(scanner *tinyScanner) (bool, interface{}) {
 		success, expr := parseExpression()(scanner)
 
 		if success {
@@ -466,7 +466,7 @@ func makeExpressionParser(nodify nodifyExpression) tsqlParser {
 }
 
 func committed(committedAt string, p tsqlParser) tsqlParser {
-	return func(scanner *tsqlScanner) (bool, interface{}) {
+	return func(scanner *tinyScanner) (bool, interface{}) {
 		scanner.committed = committedAt
 
 		if success, results := scanner.run(p); success {

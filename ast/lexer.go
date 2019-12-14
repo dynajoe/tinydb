@@ -1,4 +1,4 @@
-package engine
+package ast
 
 import (
 	"fmt"
@@ -53,10 +53,10 @@ const (
 	tsqlBoolean
 )
 
-type item struct {
-	token    Token
-	text     string
-	position int
+type TinyDBItem struct {
+	Token    Token
+	Text     string
+	Position int
 }
 
 func (t Token) String() string {
@@ -76,37 +76,35 @@ func (t Token) String() string {
 	return string(t)
 }
 
-func (i item) String() string {
+func (i TinyDBItem) String() string {
 	switch {
-	case i.token == tsqlEOF:
+	case i.Token == tsqlEOF:
 		return "EOF"
-	case i.token == tsqlError:
+	case i.Token == tsqlError:
 		return "Error"
 	}
-	return fmt.Sprintf("[%s]", i.text)
+	return fmt.Sprintf("[%s]", i.Text)
 }
 
 const eof = -1
 
-type tsqlLexer struct {
+type TinyLexer struct {
+	Items     chan TinyDBItem
 	state     stateFn
-	name      string
 	input     string
 	remaining string
 	start     int
 	pos       int
 	width     int
-	items     chan item
 }
 
-type stateFn func(*tsqlLexer) stateFn
+type stateFn func(*TinyLexer) stateFn
 
-func lex(name string, input string) *tsqlLexer {
-	l := &tsqlLexer{
+func NewLexer(input string) *TinyLexer {
+	l := &TinyLexer{
 		state: lexTinySQL,
-		name:  name,
 		input: input,
-		items: make(chan item),
+		Items: make(chan TinyDBItem),
 	}
 
 	go l.run()
@@ -114,7 +112,7 @@ func lex(name string, input string) *tsqlLexer {
 	return l
 }
 
-func lexWhiteSpace(l *tsqlLexer) stateFn {
+func lexWhiteSpace(l *TinyLexer) stateFn {
 	for isWhiteSpace(l.peek()) {
 		l.next()
 	}
@@ -124,7 +122,7 @@ func lexWhiteSpace(l *tsqlLexer) stateFn {
 	return lexTinySQL
 }
 
-func lexNumber(l *tsqlLexer) stateFn {
+func lexNumber(l *TinyLexer) stateFn {
 	for unicode.IsDigit(l.peek()) {
 		l.next()
 	}
@@ -134,7 +132,7 @@ func lexNumber(l *tsqlLexer) stateFn {
 	return lexTinySQL
 }
 
-func lexAlphaNumeric(l *tsqlLexer) stateFn {
+func lexAlphaNumeric(l *TinyLexer) stateFn {
 	for {
 		r := l.next()
 
@@ -178,7 +176,7 @@ func lexAlphaNumeric(l *tsqlLexer) stateFn {
 	}
 }
 
-func lexSymbol(l *tsqlLexer) stateFn {
+func lexSymbol(l *TinyLexer) stateFn {
 	switch r := l.peek(); r {
 	case '>':
 		l.next()
@@ -235,7 +233,7 @@ func lexSymbol(l *tsqlLexer) stateFn {
 	return lexTinySQL
 }
 
-func lexString(l *tsqlLexer) stateFn {
+func lexString(l *TinyLexer) stateFn {
 	if p := l.peek(); p == '\'' {
 		l.next()
 
@@ -249,7 +247,7 @@ func lexString(l *tsqlLexer) stateFn {
 				l.emit(tsqlString)
 				break
 			} else if current == eof {
-				panic("Non terminated string token!")
+				panic("Non terminated string Token!")
 			}
 
 			previous = current
@@ -261,7 +259,7 @@ func lexString(l *tsqlLexer) stateFn {
 	return nil
 }
 
-func lexTinySQL(l *tsqlLexer) stateFn {
+func lexTinySQL(l *TinyLexer) stateFn {
 	r := l.peek()
 
 	if r == eof {
@@ -277,23 +275,23 @@ func lexTinySQL(l *tsqlLexer) stateFn {
 	} else if isAlphaNumeric(r) {
 		return lexAlphaNumeric(l)
 	} else {
-		return l.errorf("Unexpected token %s", string(r))
+		return l.errorf("Unexpected Token %s", string(r))
 	}
 
 	return nil
 }
 
-func (l *tsqlLexer) nextItem() item {
-	return <-l.items
+func (l *TinyLexer) nextItem() TinyDBItem {
+	return <-l.Items
 }
 
-func (l *tsqlLexer) peek() rune {
+func (l *TinyLexer) peek() rune {
 	r := l.next()
 	l.backup()
 	return r
 }
 
-func (l *tsqlLexer) peek2() rune {
+func (l *TinyLexer) peek2() rune {
 	if l.peek() == eof {
 		return eof
 	}
@@ -305,7 +303,7 @@ func (l *tsqlLexer) peek2() rune {
 	return r
 }
 
-func (l *tsqlLexer) next() rune {
+func (l *TinyLexer) next() rune {
 	if l.pos >= len(l.input) {
 		l.width = 0
 		return eof
@@ -319,7 +317,7 @@ func (l *tsqlLexer) next() rune {
 	return r
 }
 
-func (l *tsqlLexer) atTerminator() bool {
+func (l *TinyLexer) atTerminator() bool {
 	r := l.peek()
 
 	if isWhiteSpace(r) || isEndOfLine(r) {
@@ -334,8 +332,8 @@ func (l *tsqlLexer) atTerminator() bool {
 	return false
 }
 
-func (l *tsqlLexer) errorf(format string, args ...interface{}) stateFn {
-	l.items <- item{
+func (l *TinyLexer) errorf(format string, args ...interface{}) stateFn {
+	l.Items <- TinyDBItem{
 		tsqlError,
 		fmt.Sprintf(format, args...),
 		l.start,
@@ -344,21 +342,21 @@ func (l *tsqlLexer) errorf(format string, args ...interface{}) stateFn {
 	return nil
 }
 
-func (l *tsqlLexer) backup() {
+func (l *TinyLexer) backup() {
 	l.pos -= l.width
 }
 
-func (l *tsqlLexer) emit(token Token) {
-	l.items <- item{token, l.input[l.start:l.pos], l.start}
+func (l *TinyLexer) emit(token Token) {
+	l.Items <- TinyDBItem{token, l.input[l.start:l.pos], l.start}
 	l.remaining = l.input[l.pos:]
 	l.start = l.pos
 }
 
-func (l *tsqlLexer) run() {
+func (l *TinyLexer) run() {
 	for state := lexTinySQL; state != nil; {
 		state = state(l)
 	}
-	close(l.items)
+	close(l.Items)
 }
 
 func isAlphaNumeric(r rune) bool {

@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/joeandaverde/tinydb/ast"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableDefinition, error) {
-	tablePath := filepath.Join(engine.Config.BasePath, "tsql_data", strings.ToLower(createStatement.TableName))
+func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*TableDefinition, error) {
+	tablePath := filepath.Join(engine.Config.DataDir, strings.ToLower(createStatement.TableName))
 
 	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("table already exists")
@@ -29,9 +30,19 @@ func createTable(engine *Engine, createStatement *CreateTableStatement) (*TableD
 
 	w := bufio.NewWriter(f)
 
+	var columnDefinitions []ColumnDefinition
+	for i, c := range createStatement.Columns {
+		columnDefinitions = append(columnDefinitions, ColumnDefinition{
+			Name:       c.Name,
+			Type:       c.Type,
+			Offset:     i,
+			PrimaryKey: c.PrimaryKey,
+		})
+	}
+
 	tableMetadata := TableDefinition{
 		Name:    createStatement.TableName,
-		Columns: createStatement.Columns,
+		Columns: columnDefinitions,
 	}
 
 	contents, err := json.Marshal(tableMetadata)

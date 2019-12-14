@@ -1,49 +1,55 @@
 package engine
 
 import (
+	"github.com/joeandaverde/tinydb/ast"
 	"io"
 	"log"
 	"sync"
 
-	"github.com/joeandaverde/tinydb/btree"
+	"github.com/joeandaverde/tinydb/internal/btree"
 )
+
+// Row is a row in a result
+type Row []string
+
+// ColumnList represents a list of columns of a result set
+type ColumnList []string
 
 // ResultSet is the result of a query; rows are provided asynchronously
 type ResultSet struct {
-	Columns []string
-	Rows    <-chan []string
+	Columns ColumnList
+	Rows    <-chan Row
 	Error   <-chan error
 }
 
 type nestedLoop struct {
-	outer  planItem
-	inner  planItem
-	filter Expression
+	outer  executable
+	inner  executable
+	filter ast.Expression
 }
 
 type indexScan struct {
 	index  *btree.BTree
 	value  string
-	column *ColumnReference
+	table  TableDefinition
+	column ColumnDefinition
 }
 
 type sequenceScan struct {
-	table  *TableDefinition
-	filter Expression
+	table  TableDefinition
+	filter ast.Expression
 }
 
-type planItem interface {
+type executable interface {
 	execute(*Engine, *ExecutionEnvironment) (*ResultSet, error)
+	optimize(*Engine, *ExecutionEnvironment) executable
 }
 
-func emptyResultSet() *ResultSet {
-	rows := make(chan []string)
-	var columns []string
+func EmptyResultSet() *ResultSet {
+	rows := make(chan Row)
 	close(rows)
-
 	return &ResultSet{
-		Columns: columns,
-		Rows:    rows,
+		Rows: rows,
 	}
 }
 
@@ -54,7 +60,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 		return nil, err
 	}
 
-	results := make(chan []string)
+	results := make(chan Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
@@ -72,7 +78,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 				break
 			}
 
-			if s.filter != nil && Evaluate(s.filter, row, env).Value != true {
+			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: row}).Value != true {
 				continue
 			}
 
@@ -87,14 +93,35 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 	}, nil
 }
 
+func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+	// This simply detects: customer_id = 1 or 1 = customer_id
+	if op, ok := s.filter.(*ast.BinaryOperation); ok {
+		ident, literal := ast.IdentLiteralOperation(op)
+
+		if ident != nil && literal != nil && op.Operator == "=" {
+			columnReference := env.ColumnLookup[ident.Value]
+			if columnReference.PrimaryKey {
+				return &indexScan{
+					index:  engine.Indexes[s.table.Name],
+					value:  literal.Value,
+					table:  s.table,
+					column: columnReference,
+				}
+			}
+		}
+	}
+
+	return s
+}
+
 func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	csvFile, err := newTableScanner(engine.Config, s.column.table)
+	csvFile, err := newTableScanner(engine.Config, s.table.Name)
 
 	if err != nil {
 		return nil, err
 	}
 
-	results := make(chan []string)
+	results := make(chan Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
@@ -136,37 +163,37 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 	}, nil
 }
 
-func mergeErrors(chans ...<-chan error) <-chan error {
-	out := make(chan error, len(chans))
-	var wg sync.WaitGroup
+func (s *indexScan) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+	return s
+}
 
-	wg.Add(len(chans))
-	for _, c := range chans {
-		go func(c <-chan error) {
-			defer wg.Done()
-			for e := range c {
-				out <- e
-			}
-		}(c)
+type evalContext struct {
+	env  *ExecutionEnvironment
+	data []string
+}
+
+type nilEvalContext struct{}
+
+func (c nilEvalContext) GetValue(*ast.Ident) (interface{}, bool) {
+	return nil, false
+}
+
+func (c evalContext) GetValue(ident *ast.Ident) (interface{}, bool) {
+	if columnIndex, ok := c.env.ColumnLookup[ident.Value]; ok {
+		return c.data[columnIndex.Offset], true
 	}
-
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-
-	return out
+	return nil, false
 }
 
 func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	results := make(chan []string)
+	results := make(chan Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
 		defer close(results)
 
-		outerStatement, _ := optimize(s.outer, engine, env).execute(engine, env)
-		innerStatement, _ := optimize(s.inner, engine, env).execute(engine, env)
+		outerStatement, _ := s.outer.optimize(engine, env).execute(engine, env)
+		innerStatement, _ := s.inner.optimize(engine, env).execute(engine, env)
 
 		innerErrors := mergeErrors(outerStatement.Error, innerStatement.Error)
 
@@ -189,7 +216,7 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 			for _, i := range innerRows {
 				row := append(append([]string{}, o...), i...)
 
-				if s.filter != nil && Evaluate(s.filter, row, env).Value != true {
+				if s.filter != nil && ast.Evaluate(s.filter, &evalContext{env: env, data: row}).Value != true {
 					continue
 				}
 
@@ -205,85 +232,61 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 	}, nil
 }
 
-func identLiteralOperation(op *BinaryOperation) (*Ident, *BasicLiteral) {
-	if leftIdent, rightLiteral := asIdent(op.Left), asLiteral(op.Right); leftIdent != nil && rightLiteral != nil {
-		return leftIdent, rightLiteral
-	}
-
-	if rightIdent, leftLiteral := asIdent(op.Right), asLiteral(op.Left); rightIdent != nil && leftLiteral != nil {
-		return rightIdent, leftLiteral
-	}
-
-	return nil, nil
+func (s *nestedLoop) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+	return s
 }
 
-func optimize(plan planItem, engine *Engine, environment *ExecutionEnvironment) planItem {
-	if s, ok := plan.(*sequenceScan); ok {
-		// This simply detects: customer_id = 1 or 1 = customer_id
-		if op, ok := s.filter.(*BinaryOperation); ok {
-			ident, literal := identLiteralOperation(op)
-
-			if ident != nil && literal != nil && op.Operator == "=" {
-				columnReference := environment.ColumnLookup[ident.Value]
-				if columnReference.definition.PrimaryKey {
-					return &indexScan{
-						index:  engine.Indexes[columnReference.table],
-						value:  literal.Value,
-						column: columnReference,
-					}
-				}
-			}
-		}
-	}
-
-	return plan
-}
-
-func asIdent(e Expression) *Ident {
-	if op, ok := e.(*Ident); ok {
-		return op
-	}
-
-	return nil
-}
-
-func asLiteral(e Expression) *BasicLiteral {
-	if op, ok := e.(*BasicLiteral); ok {
-		return op
-	}
-
-	return nil
-}
-
-func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatement *SelectStatement) planItem {
+func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatement *ast.SelectStatement) executable {
 	if len(selectStatement.From) == 1 {
 		return &sequenceScan{
-			table:  environment.Tables[selectStatement.From[0].alias],
+			table:  environment.Tables[selectStatement.From[0].Alias],
 			filter: selectStatement.Filter,
 		}
 	}
 
 	return &nestedLoop{
 		outer: &sequenceScan{
-			table:  environment.Tables[selectStatement.From[0].alias],
+			table:  environment.Tables[selectStatement.From[0].Alias],
 			filter: nil,
 		},
 		inner: &sequenceScan{
-			table:  environment.Tables[selectStatement.From[1].alias],
+			table:  environment.Tables[selectStatement.From[1].Alias],
 			filter: nil,
 		},
 		filter: selectStatement.Filter,
 	}
 }
 
-func doSelect(engine *Engine, selectStatement *SelectStatement) (*ResultSet, error) {
+func doSelect(engine *Engine, selectStatement *ast.SelectStatement) (*ResultSet, error) {
 	environment, err := newExecutionEnvironment(engine, selectStatement.From)
 
 	if err != nil {
 		return nil, err
 	}
 
-	plan := optimize(buildPlan(engine, environment, selectStatement), engine, environment)
+	plan := buildPlan(engine, environment, selectStatement).optimize(engine, environment)
 
 	return plan.execute(engine, environment)
+}
+
+func mergeErrors(chans ...<-chan error) <-chan error {
+	out := make(chan error, len(chans))
+	var wg sync.WaitGroup
+
+	wg.Add(len(chans))
+	for _, c := range chans {
+		go func(c <-chan error) {
+			defer wg.Done()
+			for e := range c {
+				out <- e
+			}
+		}(c)
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
 }

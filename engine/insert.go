@@ -4,31 +4,23 @@ import (
 	"bufio"
 	"encoding/csv"
 	"fmt"
+	"github.com/joeandaverde/tinydb/ast"
 	"os"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 )
 
-func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, returning *ResultSet, err error) {
+func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
 	log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
-
-	var emptyTables []TableAlias
-	var emptyColumns []string
-
-	environment, err := newExecutionEnvironment(engine, emptyTables)
-
-	if err != nil {
-		return 0, nil, err
-	}
 
 	metadata, ok := engine.Tables[insertStatement.Table]
 
 	if !ok {
-		return 0, nil, fmt.Errorf("Unable to locate table %s", insertStatement.Table)
+		return 0, nil, fmt.Errorf("unable to locate table %s", insertStatement.Table)
 	}
 
-	dataFilePath := filepath.Join(engine.Config.BasePath, "tsql_data", insertStatement.Table, "data.csv")
+	dataFilePath := filepath.Join(engine.Config.DataDir, insertStatement.Table, "data.csv")
 	dataFile, err := os.OpenFile(dataFilePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
 
 	if err != nil {
@@ -55,7 +47,7 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, r
 
 	var values []string
 	for _, column := range metadata.Columns {
-		value := Evaluate(insertStatement.Values[column.Name], emptyColumns, environment)
+		value := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
 		values = append(values, fmt.Sprintf("%s", value))
 	}
 
@@ -65,5 +57,5 @@ func doInsert(engine *Engine, insertStatement *InsertStatement) (rowCount int, r
 		return 0, nil, err
 	}
 
-	return 0, emptyResultSet(), nil
+	return 0, EmptyResultSet(), nil
 }
