@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/joeandaverde/tinydb/ast"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestSelectStar(t *testing.T) {
-	selectStatement, _ := engine.Parse("SELECT * FROM foo")
+	selectStatement, _ := ast.Parse("SELECT * FROM foo")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -18,7 +19,7 @@ func TestSelectStar(t *testing.T) {
 }
 
 func TestSelectColumns(t *testing.T) {
-	selectStatement, _ := engine.Parse("SELECT a, b FROM foo")
+	selectStatement, _ := ast.Parse("SELECT a, b FROM foo")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -26,7 +27,7 @@ func TestSelectColumns(t *testing.T) {
 }
 
 func TestSelectFromMultipleTables(t *testing.T) {
-	selectStatement, _ := engine.Parse("SELECT a, b FROM foo, bar")
+	selectStatement, _ := ast.Parse("SELECT a, b FROM foo, bar")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")
@@ -34,7 +35,7 @@ func TestSelectFromMultipleTables(t *testing.T) {
 }
 
 func TestSelectWhereClause(t *testing.T) {
-	selectStatement, _ := engine.Parse("SELECT a, b FROM foo, bar WHERE a = 1")
+	selectStatement, _ := ast.Parse("SELECT a, b FROM foo, bar WHERE a = 1")
 
 	if selectStatement == nil {
 		t.Errorf("parsing select statement failed")

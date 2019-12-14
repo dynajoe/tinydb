@@ -1,2 +1,2 @@
-base_path: "."
+data_directory: "./tsql_data"
 listen: ":31985"

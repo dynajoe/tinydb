@@ -5,44 +5,65 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/joeandaverde/tinydb/ast"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/joeandaverde/tinydb/btree"
+	"github.com/joeandaverde/tinydb/internal/btree"
 )
 
 type (
+	// ColumnDefinition represents a specification for a column in a table
+	ColumnDefinition struct {
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		Offset     int    `json:"offset"`
+		PrimaryKey bool   `json:"is_primary_key"`
+	}
+
+	TableDefinition struct {
+		Name    string             `json:"name"`
+		Columns []ColumnDefinition `json:"columns"`
+	}
+
 	indexedField struct {
 		value  string
 		offset int
 	}
 
 	pkJob struct {
-		table      *TableDefinition
+		table      TableDefinition
 		fieldIndex int
 		result     *btree.BTree
 	}
 
 	// Config describes the configuration for the database
 	Config struct {
-		BasePath string `yaml:"base_path"`
-		Addr     string `yaml:"listen"`
+		DataDir string `yaml:"data_directory"`
+		Addr    string `yaml:"listen"`
 	}
 
 	// Engine holds metadata and indexes about the database
 	Engine struct {
-		Indexes map[string]*btree.BTree
-		Tables  map[string]*TableDefinition
-		Log     *log.Logger
-		Config  *Config
+		Indexes   map[string]*btree.BTree
+		Tables    map[string]TableDefinition
+		Log       *log.Logger
+		Config    *Config
+		adminLock sync.Mutex
+	}
+
+	ExecutionEnvironment struct {
+		ColumnLookup map[string]ColumnDefinition
+		Tables       map[string]TableDefinition
+		Columns      []string
+		Indexes      map[string]*btree.BTree
+		Engine       *Engine
 	}
 )
 
@@ -52,10 +73,10 @@ func (f *indexedField) Less(than btree.Item) bool {
 
 // Start initializes a new TinyDb database engine
 func Start(basePath string) *Engine {
-	log.Infof("Starting database engine [BasePath: %s]", basePath)
+	log.Infof("Starting database engine [DataDir: %s]", basePath)
 
 	config := &Config{
-		BasePath: basePath,
+		DataDir: basePath,
 	}
 
 	tables := loadTableDefinitions(config)
@@ -72,37 +93,38 @@ func Start(basePath string) *Engine {
 
 // Execute runs a statement against the database engine
 func (e *Engine) Execute(text string) (*ResultSet, error) {
-	log.Debug("EXEC: ", text)
-	statement, err := Parse(strings.TrimSpace(text))
+	startingTime := time.Now().UTC()
+	defer (func() {
+		duration := time.Now().UTC().Sub(startingTime)
+		e.Log.Info("\nDuration: %s\n", duration)
+	})()
 
+	e.Log.Debug("EXEC: ", text)
+
+	statement, err := ast.Parse(strings.TrimSpace(text))
 	if err != nil {
 		return nil, err
 	}
 
-	if statement != nil {
-		return executeStatement(e, statement)
-	}
-
-	return nil, fmt.Errorf("Unable to parse statement %s", text)
+	return executeStatement(e, statement)
 }
 
-func executeStatement(engine *Engine, statement Statement) (*ResultSet, error) {
-	startingTime := time.Now().UTC()
-	defer (func() {
-		duration := time.Now().UTC().Sub(startingTime)
-		fmt.Printf("\nDuration: %s\n", duration)
-	})()
+func (e *Engine) loadTables() {
+	newTables := loadTableDefinitions(e.Config)
+	e.adminLock.Lock()
+	e.Tables = newTables
+	e.adminLock.Unlock()
+}
 
+func executeStatement(engine *Engine, statement ast.Statement) (*ResultSet, error) {
 	switch s := (statement).(type) {
-	case *CreateTableStatement:
+	case *ast.CreateTableStatement:
 		if _, err := createTable(engine, s); err != nil {
 			return nil, err
 		}
-
-		engine.Tables = loadTableDefinitions(engine.Config)
-
-		return emptyResultSet(), nil
-	case *InsertStatement:
+		engine.loadTables()
+		return EmptyResultSet(), nil
+	case *ast.InsertStatement:
 		_, result, err := doInsert(engine, s)
 
 		if err != nil {
@@ -110,15 +132,15 @@ func executeStatement(engine *Engine, statement Statement) (*ResultSet, error) {
 		}
 
 		return result, nil
-	case *SelectStatement:
+	case *ast.SelectStatement:
 		return doSelect(engine, s)
+	default:
+		return nil, fmt.Errorf("unexpected statement type")
 	}
-
-	return nil, fmt.Errorf("Unexpected statement type")
 }
 
 func newTableScanner(config *Config, tableName string) (*csv.Reader, error) {
-	csvFile, err := os.Open(filepath.Join(config.BasePath, "tsql_data", tableName, "data.csv"))
+	csvFile, err := os.Open(filepath.Join(config.DataDir, tableName, "data.csv"))
 
 	if err != nil {
 		return nil, err
@@ -159,7 +181,7 @@ func buildIndex(config *Config, job *pkJob) {
 	job.result = btree
 }
 
-func buildIndexes(config *Config, m map[string]*TableDefinition) map[string]*btree.BTree {
+func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btree.BTree {
 	indexes := make(map[string]*btree.BTree)
 	results := make(chan *pkJob)
 
@@ -169,7 +191,7 @@ func buildIndexes(config *Config, m map[string]*TableDefinition) map[string]*btr
 		for i, c := range t.Columns {
 			if c.PrimaryKey {
 				wg.Add(1)
-				go func(i int, t *TableDefinition) {
+				go func(i int, t TableDefinition) {
 					defer wg.Done()
 					job := &pkJob{fieldIndex: i, table: t}
 					buildIndex(config, job)
@@ -191,10 +213,10 @@ func buildIndexes(config *Config, m map[string]*TableDefinition) map[string]*btr
 	return indexes
 }
 
-func loadTableDefinitions(config *Config) map[string]*TableDefinition {
-	tableDefinitions := make(map[string]*TableDefinition)
+func loadTableDefinitions(config *Config) map[string]TableDefinition {
+	tableDefinitions := make(map[string]TableDefinition)
 
-	filepath.Walk(path.Join(config.BasePath, "tsql_data"), func(p string, info os.FileInfo, err error) error {
+	filepath.Walk(config.DataDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -213,7 +235,7 @@ func loadTableDefinitions(config *Config) map[string]*TableDefinition {
 				panic("unable to load tables")
 			}
 
-			tableDefinitions[tableDefinition.Name] = &tableDefinition
+			tableDefinitions[tableDefinition.Name] = tableDefinition
 		}
 
 		return nil
@@ -222,27 +244,19 @@ func loadTableDefinitions(config *Config) map[string]*TableDefinition {
 	return tableDefinitions
 }
 
-func newExecutionEnvironment(engine *Engine, tables []TableAlias) (*ExecutionEnvironment, error) {
-	columnLookup := make(map[string]*ColumnReference)
-	tableMetadata := make(map[string]*TableDefinition)
-	allMetadata := make([]*TableDefinition, len(tables))
+func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
+	columnLookup := make(map[string]ColumnDefinition)
+	tableMetadata := make(map[string]TableDefinition)
+	allMetadata := make([]TableDefinition, len(tables))
 
-	i := 0
 	for _, tableAlias := range tables {
-		metadata, _ := engine.Tables[tableAlias.name]
+		metadata, _ := engine.Tables[tableAlias.Name]
 
 		for _, c := range metadata.Columns {
-			columnLookup[fmt.Sprintf("%s.%s", tableAlias.alias, c.Name)] = &ColumnReference{
-				table:      tableAlias.name,
-				alias:      tableAlias.alias,
-				index:      i,
-				definition: c,
-			}
-
-			i++
+			columnLookup[fmt.Sprintf("%s.%s", tableAlias.Alias, c.Name)] = c
 		}
 
-		tableMetadata[tableAlias.alias] = metadata
+		tableMetadata[tableAlias.Alias] = metadata
 		allMetadata = append(allMetadata, metadata)
 	}
 

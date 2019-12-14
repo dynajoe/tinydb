@@ -1,4 +1,4 @@
-package engine
+package ast
 
 import (
 	"fmt"
@@ -11,7 +11,19 @@ type Statement interface {
 
 // Expression represents an TinySQL Expression that can be evaluated
 type Expression interface {
-	Evaluate([]string, *ExecutionEnvironment) EvaluatedExpression
+	Evaluate(ctx EvaluationContext) EvaluatedExpression
+}
+
+// EvaluationContext provides a means for resolving identifiers to values
+type EvaluationContext interface {
+	GetValue(ident *Ident) (interface{}, bool)
+}
+
+// ColumnReference represents an instruction to create a table
+type ColumnReference struct {
+	Table string
+	Alias string
+	Index int
 }
 
 // CreateTableStatement represents an instruction to create a table
@@ -30,8 +42,8 @@ type ColumnDefinition struct {
 
 // TableAlias represents a local name and the table it refers to
 type TableAlias struct {
-	name  string
-	alias string
+	Name  string
+	Alias string
 }
 
 // SelectStatement represents an instruction to select/filter rows from one or more tables
@@ -41,20 +53,14 @@ type SelectStatement struct {
 	Filter  Expression
 }
 
+type ValueSet map[string]Expression
+
 // InsertStatement represents an instruction to insert data into a table and expressions that evaluate to values
 type InsertStatement struct {
 	Table     string
-	Values    map[string]Expression
+	Values    ValueSet
 	Returning []string
 }
-
-func (*SelectStatement) kind() string      { return "select-statement" }
-func (*InsertStatement) kind() string      { return "insert-statement" }
-func (*CreateTableStatement) kind() string { return "create-table-statement" }
-
-func (*SelectStatement) iStatement()      {}
-func (*InsertStatement) iStatement()      {}
-func (*CreateTableStatement) iStatement() {}
 
 // BinaryOperation is an expression with two operands
 type BinaryOperation struct {
@@ -74,13 +80,37 @@ type BasicLiteral struct {
 	TokenType Token
 }
 
-func (*BinaryOperation) kind() string { return "binary-operation" }
-func (*BasicLiteral) kind() string    { return "basic-literal" }
-func (*Ident) kind() string           { return "ident" }
+func (*SelectStatement) iStatement()      {}
+func (*InsertStatement) iStatement()      {}
+func (*CreateTableStatement) iStatement() {}
 
-func (*BinaryOperation) iExpression() {}
-func (*BasicLiteral) iExpression()    {}
-func (*Ident) iExpression()           {}
+func IdentLiteralOperation(op *BinaryOperation) (*Ident, *BasicLiteral) {
+	if leftIdent, rightLiteral := asIdent(op.Left), asLiteral(op.Right); leftIdent != nil && rightLiteral != nil {
+		return leftIdent, rightLiteral
+	}
+
+	if rightIdent, leftLiteral := asIdent(op.Right), asLiteral(op.Left); rightIdent != nil && leftLiteral != nil {
+		return rightIdent, leftLiteral
+	}
+
+	return nil, nil
+}
+
+func asIdent(e Expression) *Ident {
+	if op, ok := e.(*Ident); ok {
+		return op
+	}
+
+	return nil
+}
+
+func asLiteral(e Expression) *BasicLiteral {
+	if op, ok := e.(*BasicLiteral); ok {
+		return op
+	}
+
+	return nil
+}
 
 func (s *SelectStatement) String() string {
 	return fmt.Sprintf("SELECT %s\nFROM %s\nWHERE %s", s.Columns, s.From, s.Filter)
