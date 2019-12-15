@@ -56,7 +56,7 @@ func EmptyResultSet() *ResultSet {
 }
 
 func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	csvFile, err := newTableScanner(engine.Config, s.table.Name)
+	rowReader, err := newTableScanner(engine.Config, s.table.Name)
 
 	if err != nil {
 		return nil, err
@@ -69,7 +69,8 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 		defer close(results)
 		defer close(errorChan)
 
-		for row := csvFile.Read(); row.IsValid; {
+		for rowReader.Scan() {
+			row := rowReader.Read()
 			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: row.Data}).Value != true {
 				continue
 			}
@@ -107,7 +108,7 @@ func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) execu
 }
 
 func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	csvFile, err := newTableScanner(engine.Config, s.table.Name)
+	rowReader, err := newTableScanner(engine.Config, s.table.Name)
 
 	if err != nil {
 		return nil, err
@@ -125,7 +126,8 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 		})
 
 		if f, ok := item.(*indexedField); ok {
-			for row := csvFile.Read(); row.IsValid; {
+			for rowReader.Scan() {
+				row := rowReader.Read()
 				for _, o := range f.offsets {
 					if row.Offset == o {
 						results <- row

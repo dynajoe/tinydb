@@ -200,7 +200,11 @@ func (n *node) find(item Item) Item {
 		return n.items[i]
 	}
 
-	return n.children[i].find(item)
+	if i < len(n.children) {
+		return n.children[i].find(item)
+	}
+
+	return nil
 }
 
 func (n *node) insert(item Item, maxItems int) Item {

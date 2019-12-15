@@ -59,5 +59,7 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		return nil, err
 	}
 
+	_, err = os.Create(filepath.Join(tablePath, "./data.csv"))
+
 	return &tableMetadata, nil
 }

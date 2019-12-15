@@ -224,9 +224,9 @@ func parseSelect(scanner TinyScanner) (*SelectStatement, error) {
 
 func parseTermExpression() ExpressionParser {
 	return func(scanner TinyScanner) (bool, Expression) {
+		_, reset := scanner.Mark()
 		var expr Expression
 
-		scanner.Reset()
 		ok, _ := oneOf([]Parser{
 			parseTerm(func(expression Expression) {
 				expr = expression
@@ -244,6 +244,10 @@ func parseTermExpression() ExpressionParser {
 				}
 			})),
 		}, nil)(scanner)
+
+		if !ok {
+			reset()
+		}
 
 		return ok, expr
 	}
