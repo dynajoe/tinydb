@@ -66,7 +66,7 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 
 	db := engine.Start(testDir)
 
-	if _, err := engine.Execute(db, createTableStatement); err != nil {
+	if _, err := db.Execute(createTableStatement); err != nil {
 		return nil, cleanUp, err
 	}
 
@@ -84,7 +84,7 @@ func TestInsert(t *testing.T) {
 	var results []string
 
 	for i, c := range companies {
-		result, err := engine.Execute(db, fmt.Sprintf(`
+		result, err := db.Execute(fmt.Sprintf(`
 			INSERT INTO company (company_id, company_name)
 			VALUES ('%d', '%s')
 			RETURNING company_id;
@@ -105,7 +105,7 @@ func TestInsert(t *testing.T) {
 		WHERE c.company_name = 'Google';
 	`
 
-	result, err := engine.Execute(db, statement)
+	result, err := db.Execute(statement)
 
 	if err != nil {
 		t.Error(err)
