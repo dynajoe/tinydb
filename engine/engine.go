@@ -94,10 +94,10 @@ func Start(basePath string) *Engine {
 // Execute runs a statement against the database engine
 func (e *Engine) Execute(text string) (*ResultSet, error) {
 	startingTime := time.Now().UTC()
-	defer (func() {
+	defer func() {
 		duration := time.Now().UTC().Sub(startingTime)
 		e.Log.Infof("\nDuration: %s\n", duration)
-	})()
+	}()
 
 	e.Log.Debug("EXEC: ", text)
 
