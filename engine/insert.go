@@ -7,12 +7,10 @@ import (
 	"github.com/joeandaverde/tinydb/ast"
 	"os"
 	"path/filepath"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
-	log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
+	engine.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
 
 	metadata, ok := engine.Tables[insertStatement.Table]
 
@@ -46,9 +44,22 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}()
 
 	var values []string
+
+	fileInfo, _ := dataFile.Stat()
+	fileOffset := fileInfo.Size()
+	values = append(values, fmt.Sprintf("%d", fileOffset))
+
 	for _, column := range metadata.Columns {
 		value := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
 		values = append(values, fmt.Sprintf("%s", value))
+
+		if index, ok := engine.Indexes[metadata.Name]; ok {
+			f := &indexedField{value: fmt.Sprintf("%s", value), offsets: []int64{fileOffset}}
+			r := index.Insert(f).(*indexedField)
+			if r != f {
+				r.offsets = append(r.offsets, fileOffset)
+			}
+		}
 	}
 
 	csvWriter := csv.NewWriter(writer)
@@ -57,5 +68,5 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		return 0, nil, err
 	}
 
-	return 0, EmptyResultSet(), nil
+	return 1, EmptyResultSet(), nil
 }

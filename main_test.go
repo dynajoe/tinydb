@@ -75,9 +75,11 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 
 func TestInsert(t *testing.T) {
 	db, cleanUp, err := initializeTestDb()
-
 	if cleanUp != nil {
 		defer cleanUp()
+	}
+	if err != nil {
+		t.Fatal(err.Error())
 	}
 
 	companies := []string{"Netflix", "Facebook", "Apple", "Google"}
@@ -95,7 +97,7 @@ func TestInsert(t *testing.T) {
 		}
 
 		for r := range result.Rows {
-			results = append(results, r[0])
+			results = append(results, r.Data[0])
 		}
 	}
 
