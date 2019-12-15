@@ -4,9 +4,11 @@ import (
 	"fmt"
 )
 
-type tsqlParser func(*tinyScanner) (bool, interface{})
+type Parser func(TinyScanner) (bool, interface{})
 
-type tsqlOpParser func(*tinyScanner) (bool, string)
+type ExpressionParser func(TinyScanner) (bool, Expression)
+
+type tsqlOpParser func(TinyScanner) (bool, string)
 
 type nodify func(tokens []TinyDBItem)
 
@@ -17,8 +19,6 @@ type nodifyExpression func(expr Expression)
 type nodifyOperator func(tokens []TinyDBItem) string
 
 type expressionMaker func(op string, a Expression, b Expression) Expression
-
-type expressionParser func(scanner *tinyScanner) (bool, Expression)
 
 // Parse - parses TinySql statements
 func Parse(sql string) (Statement, error) {
@@ -52,134 +52,107 @@ func Parse(sql string) (Statement, error) {
 	return nil, nil
 }
 
-func parseCreateTable(scanner *tinyScanner) (*CreateTableStatement, error) {
-	createTableStatement := &CreateTableStatement{}
+func parseCreateTable(scanner TinyScanner) (*CreateTableStatement, error) {
+	createTableStatement := CreateTableStatement{}
 	flags := make(map[string]string)
 
-	result, _ := scanner.start(
-		all([]tsqlParser{
-			requiredToken(tsqlCreate, nil),
-			requiredToken(tsqlWhiteSpace, nil),
-			requiredToken(tsqlTable, nil),
-			requiredToken(tsqlWhiteSpace, nil),
-			optional(all([]tsqlParser{
-				text("IF"),
-				requiredToken(tsqlWhiteSpace, nil),
-				text("NOT"),
-				requiredToken(tsqlWhiteSpace, nil),
-				text("EXISTS"),
-				requiredToken(tsqlWhiteSpace, nil),
-			}, nil), func(token []TinyDBItem) {
+	scanner.Reset()
+
+	columnDefinition := all([]Parser{
+		optWS,
+		requiredToken(tsqlIdentifier, nil),
+		reqWS,
+		requiredToken(tsqlIdentifier, nil),
+		optional(all([]Parser{
+			reqWS,
+			text("PRIMARY"),
+			reqWS,
+			text("KEY"),
+		}, nil), func(tokens []TinyDBItem) {
+			flags["primary_key"] = "true"
+		}),
+		optWS,
+	}, func(tokens [][]TinyDBItem) {
+		columnName := tokens[1][0].Text
+		columnType := tokens[3][0].Text
+
+		_, isPrimaryKey := flags["primary_key"]
+
+		createTableStatement.Columns = append(createTableStatement.Columns, ColumnDefinition{
+			Name:       columnName,
+			Type:       columnType,
+			PrimaryKey: isPrimaryKey,
+		})
+
+		flags = make(map[string]string)
+	})
+
+	ok, _ := allX(
+		keyword(tsqlCreate),
+		keyword(tsqlTable),
+		optional(
+			allX(token(tsqlIf), token(tsqlNot), token(tsqlExists)),
+			func(token []TinyDBItem) {
 				createTableStatement.IfNotExists = true
 			}),
-			requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
-				createTableStatement.TableName = token[0].Text
-			}),
-			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlOpenParen, nil),
-			optionalToken(tsqlWhiteSpace),
-			separatedBy1(requiredToken(tsqlComma, nil),
-				all([]tsqlParser{
-					optionalToken(tsqlWhiteSpace),
-					requiredToken(tsqlIdentifier, nil),
-					requiredToken(tsqlWhiteSpace, nil),
-					requiredToken(tsqlIdentifier, nil),
-					optional(all([]tsqlParser{
-						requiredToken(tsqlWhiteSpace, nil),
-						text("PRIMARY"),
-						requiredToken(tsqlWhiteSpace, nil),
-						text("KEY"),
-					}, nil), func(tokens []TinyDBItem) {
-						flags["primary_key"] = "true"
-					}),
-					optionalToken(tsqlWhiteSpace),
-				}, func(tokens [][]TinyDBItem) {
-					columnName := tokens[1][0].Text
-					columnType := tokens[3][0].Text
+		ident(func(tableName string) {
+			createTableStatement.TableName = tableName
+		}),
+		parens(
+			separatedBy1(
+				commaSeparator,
+				columnDefinition,
+			),
+		),
+	)(scanner)
 
-					_, isPrimaryKey := flags["primary_key"]
-
-					createTableStatement.Columns = append(createTableStatement.Columns, ColumnDefinition{
-						Name:       columnName,
-						Type:       columnType,
-						PrimaryKey: isPrimaryKey,
-					})
-
-					flags = make(map[string]string)
-				})),
-			optionalToken(tsqlComma),
-			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlCloseParen, nil),
-			optionalToken(tsqlWhiteSpace),
-		}, nil))
-
-	if result {
-		return createTableStatement, nil
+	if ok {
+		return &createTableStatement, nil
 	}
 
 	return nil, nil
 }
 
-func parseInsert(scanner *tinyScanner) (*InsertStatement, error) {
-	insertTableStatement := &InsertStatement{}
+func parseInsert(scanner TinyScanner) (*InsertStatement, error) {
+	insertTableStatement := InsertStatement{}
 
 	var columns []string
 	var values []Expression
 
-	result, _ := scanner.start(
-		all([]tsqlParser{
-			requiredToken(tsqlInsert, nil),
-			requiredToken(tsqlWhiteSpace, nil),
-			requiredToken(tsqlInto, nil),
-			requiredToken(tsqlWhiteSpace, nil),
-			requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
-				insertTableStatement.Table = token[0].Text
+	returningClause := allX(
+		keyword(tsqlReturning),
+		committed("RETURNING_COLUMNS", commaSeparated(
+			oneOf([]Parser{
+				token(tsqlIdentifier),
+				token(tsqlAsterisk),
+			}, func(token []TinyDBItem) {
+				insertTableStatement.Returning = append(insertTableStatement.Returning, token[0].Text)
 			}),
-			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlOpenParen, nil),
-			separatedBy1(requiredToken(tsqlComma, nil),
-				all([]tsqlParser{
-					optionalToken(tsqlWhiteSpace),
-					requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
-						columns = append(columns, token[0].Text)
-					}),
-				}, nil),
-			),
-			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlCloseParen, nil),
+		)),
+	)
 
-			requiredToken(tsqlWhiteSpace, nil),
-			requiredToken(tsqlValues, nil),
-			requiredToken(tsqlWhiteSpace, nil),
+	scanner.Reset()
+	ok, _ := allX(
+		keyword(tsqlInsert),
+		keyword(tsqlInto),
+		ident(func(tableName string) {
+			insertTableStatement.Table = tableName
+		}),
+		parensCommaSep(
+			ident(func(column string) {
+				columns = append(columns, column)
+			}),
+		),
+		keyword(tsqlValues),
+		parensCommaSep(
+			makeExpressionParser(func(e Expression) {
+				values = append(values, e)
+			}),
+		),
+		optionalX(returningClause),
+	)(scanner)
 
-			requiredToken(tsqlOpenParen, nil),
-			separatedBy1(requiredToken(tsqlComma, nil),
-				all([]tsqlParser{
-					optionalToken(tsqlWhiteSpace),
-					makeExpressionParser(func(e Expression) {
-						values = append(values, e)
-					}),
-				}, nil),
-			),
-			optionalToken(tsqlWhiteSpace),
-			requiredToken(tsqlCloseParen, nil),
-			optional(all([]tsqlParser{
-				requiredToken(tsqlWhiteSpace, nil),
-				text("RETURNING"),
-				requiredToken(tsqlWhiteSpace, nil),
-				committed("RETURNING_COLUMNS", separatedBy1(
-					commaSeparator(),
-					oneOf([]tsqlParser{
-						requiredToken(tsqlIdentifier, nil),
-						requiredToken(tsqlAsterisk, nil),
-					}, func(token []TinyDBItem) {
-						insertTableStatement.Returning = append(insertTableStatement.Returning, token[0].Text)
-					}),
-				)),
-			}, nil), nil),
-		}, nil))
-
-	if !result {
+	if !ok {
 		return nil, nil
 	}
 
@@ -189,7 +162,7 @@ func parseInsert(scanner *tinyScanner) (*InsertStatement, error) {
 	numValues := len(values)
 
 	if numColumns != numValues {
-		return nil, nil
+		return nil, fmt.Errorf("unexpected number of values")
 	}
 
 	insertTableStatement.Values = make(map[string]Expression)
@@ -198,96 +171,86 @@ func parseInsert(scanner *tinyScanner) (*InsertStatement, error) {
 		insertTableStatement.Values[columns[i]] = values[i]
 	}
 
-	return insertTableStatement, nil
+	return &insertTableStatement, nil
 }
 
-func parseSelect(scanner *tinyScanner) (*SelectStatement, error) {
-	selectStatement := &SelectStatement{}
+func parseSelect(scanner TinyScanner) (*SelectStatement, error) {
+	selectStatement := SelectStatement{}
 
-	whereClause :=
-		lazy(func() tsqlParser {
-			return all([]tsqlParser{
-				requiredToken(tsqlWhiteSpace, nil),
-				keyword(tsqlWhere),
-				committed("WHERE", makeExpressionParser(func(filter Expression) {
-					selectStatement.Filter = filter
-				})),
-			}, nil)
-		})
-
-	success, _ := scanner.start(
-		all([]tsqlParser{
-			committed("SELECT", keyword(tsqlSelect)),
-			committed("COLUMNS", separatedBy1(
-				commaSeparator(),
-				oneOf([]tsqlParser{
-					requiredToken(tsqlIdentifier, nil),
-					requiredToken(tsqlAsterisk, nil),
-				}, func(token []TinyDBItem) {
-					selectStatement.Columns = append(selectStatement.Columns, token[0].Text)
-				}),
-			)),
-			requiredToken(tsqlWhiteSpace, nil),
-			committed("FROM", keyword(tsqlFrom)),
-			committed("RELATIONS", separatedBy1(
-				commaSeparator(),
-				all([]tsqlParser{
-					committed("RELATION",
-						requiredToken(tsqlIdentifier, nil)),
-					optional(all([]tsqlParser{
-						requiredToken(tsqlWhiteSpace, nil),
-						requiredToken(tsqlIdentifier, nil),
-					}, nil), nil),
-				}, func(tokens [][]TinyDBItem) {
-					if len(tokens[1]) > 0 {
-						selectStatement.From = append(selectStatement.From, TableAlias{
-							Name:  tokens[0][0].Text,
-							Alias: tokens[1][1].Text,
-						})
-					} else {
-						selectStatement.From = append(selectStatement.From, TableAlias{
-							Name:  tokens[0][0].Text,
-							Alias: tokens[0][0].Text,
-						})
-					}
-				}),
-			)),
-			optional(whereClause, nil),
-			optionalToken(tsqlWhiteSpace),
-		}, nil),
+	whereClause := allX(
+		keyword(tsqlWhere),
+		committed("WHERE", makeExpressionParser(func(filter Expression) {
+			selectStatement.Filter = filter
+		})),
 	)
 
-	if success {
-		return selectStatement, nil
+	scanner.Reset()
+	ok, _ := allX(
+		committed("SELECT", keyword(tsqlSelect)),
+		committed("COLUMNS", commaSeparated(
+			oneOf([]Parser{
+				token(tsqlIdentifier),
+				token(tsqlAsterisk),
+			}, func(token []TinyDBItem) {
+				selectStatement.Columns = append(selectStatement.Columns, token[0].Text)
+			}),
+		)),
+		committed("FROM", keyword(tsqlFrom)),
+		committed("RELATIONS", commaSeparated(
+			all([]Parser{
+				committed("RELATION", token(tsqlIdentifier)),
+				optionalX(allX(
+					reqWS,
+					token(tsqlIdentifier),
+				)),
+			}, func(tokens [][]TinyDBItem) {
+				if len(tokens[1]) > 0 {
+					selectStatement.From = append(selectStatement.From, TableAlias{
+						Name:  tokens[0][0].Text,
+						Alias: tokens[1][1].Text,
+					})
+				} else {
+					selectStatement.From = append(selectStatement.From, TableAlias{
+						Name:  tokens[0][0].Text,
+						Alias: tokens[0][0].Text,
+					})
+				}
+			}),
+		)),
+		optionalX(whereClause),
+	)(scanner)
+
+	if ok {
+		return &selectStatement, nil
 	}
 
 	return nil, nil
 }
 
-func parseTermExpression() expressionParser {
-	return func(scanner *tinyScanner) (bool, Expression) {
+func parseTermExpression() ExpressionParser {
+	return func(scanner TinyScanner) (bool, Expression) {
 		var expr Expression
 
-		success, _ := scanner.run(
-			oneOf([]tsqlParser{
-				parseTerm(func(expression Expression) {
-					expr = expression
-				}),
-				parens(lazy(func() tsqlParser {
-					return func(scanner *tinyScanner) (bool, interface{}) {
-						s, e := parseExpression()(scanner)
+		scanner.Reset()
+		ok, _ := oneOf([]Parser{
+			parseTerm(func(expression Expression) {
+				expr = expression
+			}),
+			parens(lazy(func() Parser {
+				return func(scanner TinyScanner) (bool, interface{}) {
+					s, e := parseExpression()(scanner)
 
-						if s {
-							expr = e
-							return s, e
-						}
-
-						return false, s
+					if s {
+						expr = e
+						return s, e
 					}
-				})),
-			}, nil))
 
-		return success, expr
+					return false, s
+				}
+			})),
+		}, nil)(scanner)
+
+		return ok, expr
 	}
 }
 
@@ -301,8 +264,8 @@ func makeBinaryExpression() expressionMaker {
 	}
 }
 
-func operatorParser(opParser tsqlParser, nodifyOperator nodifyOperator) tsqlOpParser {
-	return func(scanner *tinyScanner) (bool, string) {
+func operatorParser(opParser Parser, nodifyOperator nodifyOperator) tsqlOpParser {
+	return func(scanner TinyScanner) (bool, string) {
 		var opText string
 
 		success, _ := required(opParser, func(x []TinyDBItem) {
@@ -320,7 +283,7 @@ func comparison() tsqlOpParser {
 }
 
 func logical() tsqlOpParser {
-	return operatorParser(oneOf([]tsqlParser{
+	return operatorParser(oneOf([]Parser{
 		operator(`AND`),
 		operator(`OR`),
 	}, nil), func(tokens []TinyDBItem) string {
@@ -329,7 +292,7 @@ func logical() tsqlOpParser {
 }
 
 func mult() tsqlOpParser {
-	return operatorParser(oneOf([]tsqlParser{
+	return operatorParser(oneOf([]Parser{
 		operator(`\*`),
 		operator(`/`),
 	}, nil), func(tokens []TinyDBItem) string {
@@ -338,7 +301,7 @@ func mult() tsqlOpParser {
 }
 
 func sum() tsqlOpParser {
-	return operatorParser(oneOf([]tsqlParser{
+	return operatorParser(oneOf([]Parser{
 		operator(`\+`),
 		operator(`-`),
 	}, nil), func(tokens []TinyDBItem) string {
@@ -346,7 +309,7 @@ func sum() tsqlOpParser {
 	})
 }
 
-func parseExpression() expressionParser {
+func parseExpression() ExpressionParser {
 	return chainl(
 		chainl(
 			chainl(
@@ -366,8 +329,8 @@ func parseExpression() expressionParser {
 	)
 }
 
-func parseTerm(nodify nodifyExpression) tsqlParser {
-	return oneOf([]tsqlParser{
+func parseTerm(nodify nodifyExpression) Parser {
+	return oneOf([]Parser{
 		requiredToken(tsqlIdentifier, func(token []TinyDBItem) {
 			if nodify != nil {
 				nodify(&Ident{
@@ -402,8 +365,12 @@ func parseTerm(nodify nodifyExpression) tsqlParser {
 	}, nil)
 }
 
-func optionalToken(expected Token) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+var optWS = optionalToken(tsqlWhiteSpace)
+var reqWS = requiredToken(tsqlWhiteSpace, nil)
+var eofParser = requiredToken(tsqlEOF, nil)
+
+func optionalToken(expected Token) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
 		if scanner.Peek().Token == expected {
 			scanner.Next()
 		}
@@ -412,8 +379,18 @@ func optionalToken(expected Token) tsqlParser {
 	}
 }
 
-func requiredToken(expected Token, nodify nodify) tsqlParser {
-	return required(func(scanner *tinyScanner) (bool, interface{}) {
+func ident(n func(string)) Parser {
+	return requiredToken(tsqlIdentifier, func(tokens []TinyDBItem) {
+		n(tokens[0].Text)
+	})
+}
+
+func token(expected Token) Parser {
+	return requiredToken(expected, nil)
+}
+
+func requiredToken(expected Token, nodify nodify) Parser {
+	return required(func(scanner TinyScanner) (bool, interface{}) {
 		if scanner.Next().Token == expected {
 			return true, nil
 		}
@@ -422,39 +399,54 @@ func requiredToken(expected Token, nodify nodify) tsqlParser {
 	}, nodify)
 }
 
-func operator(operatorText string) tsqlParser {
-	return all([]tsqlParser{
-		optionalToken(tsqlWhiteSpace),
+func operator(operatorText string) Parser {
+	return all([]Parser{
+		optWS,
 		regex(operatorText),
-		optionalToken(tsqlWhiteSpace),
+		optWS,
 	}, nil)
 }
 
-func parens(inner tsqlParser) tsqlParser {
-	return all([]tsqlParser{
+func parens(inner Parser) Parser {
+	return allX(
+		optWS,
 		requiredToken(tsqlOpenParen, nil),
+		optWS,
 		inner,
+		optWS,
 		requiredToken(tsqlCloseParen, nil),
-	}, nil)
+		optWS,
+	)
 }
 
-func commaSeparator() tsqlParser {
-	return all([]tsqlParser{
-		optionalToken(tsqlWhiteSpace),
-		requiredToken(tsqlComma, nil),
-		optionalToken(tsqlWhiteSpace),
-	}, nil)
+func parensCommaSep(p Parser) Parser {
+	return parens(commaSeparated(p))
 }
 
-func keyword(token Token) tsqlParser {
-	return all([]tsqlParser{
-		requiredToken(token, nil),
-		requiredToken(tsqlWhiteSpace, nil),
-	}, nil)
+func commaSeparated(p Parser) Parser {
+	return allX(
+		optWS,
+		separatedBy1(commaSeparator, p),
+		optWS,
+	)
 }
 
-func makeExpressionParser(nodify nodifyExpression) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+var commaSeparator = allX(
+	optWS,
+	token(tsqlComma),
+	optWS,
+)
+
+func keyword(t Token) Parser {
+	return allX(
+		optWS,
+		token(t),
+		oneOf([]Parser{eofParser, optWS}, nil), // Should this be required white space?
+	)
+}
+
+func makeExpressionParser(nodify nodifyExpression) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
 		success, expr := parseExpression()(scanner)
 
 		if success {
@@ -465,14 +457,16 @@ func makeExpressionParser(nodify nodifyExpression) tsqlParser {
 	}
 }
 
-func committed(committedAt string, p tsqlParser) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
-		scanner.committed = committedAt
+func committed(committedAt string, p Parser) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
+		scanner.Commit(committedAt)
+		_, reset := scanner.Mark()
 
-		if success, results := scanner.run(p); success {
+		if success, results := p(scanner); success {
 			return success, results
 		}
 
+		reset()
 		return false, nil
 	}
 }

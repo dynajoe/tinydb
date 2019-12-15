@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-func chainl(ep expressionParser, em expressionMaker, opParser tsqlOpParser) expressionParser {
-	return func(scanner *tinyScanner) (bool, Expression) {
+func chainl(ep ExpressionParser, em expressionMaker, opParser tsqlOpParser) ExpressionParser {
+	return func(scanner TinyScanner) (bool, Expression) {
 		success, expression := ep(scanner)
 
 		if success {
@@ -27,14 +27,14 @@ func chainl(ep expressionParser, em expressionMaker, opParser tsqlOpParser) expr
 	}
 }
 
-func lazy(x func() tsqlParser) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+func lazy(x func() Parser) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
 		return x()(scanner)
 	}
 }
 
-func text(r string) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+func text(r string) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
 		next := scanner.Peek()
 
 		if strings.ToLower(r) == strings.ToLower(next.Text) {
@@ -46,11 +46,12 @@ func text(r string) tsqlParser {
 	}
 }
 
-func regex(r string) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+func regex(r string) Parser {
+	regex := regexp.MustCompile(r)
+	return func(scanner TinyScanner) (bool, interface{}) {
 		next := scanner.Peek()
 
-		if regexp.MustCompile(r).MatchString(next.Text) {
+		if regex.MatchString(next.Text) {
 			scanner.Next()
 			return true, r
 		}
@@ -59,24 +60,27 @@ func regex(r string) tsqlParser {
 	}
 }
 
-func separatedBy1(separator tsqlParser, parser tsqlParser) tsqlParser {
-	return all([]tsqlParser{
+func separatedBy1(separator Parser, parser Parser) Parser {
+	return all([]Parser{
 		parser,
-		zeroOrMore(all([]tsqlParser{
+		zeroOrMore(all([]Parser{
 			separator,
 			parser,
 		}, nil)),
 	}, nil)
 }
 
-func zeroOrMore(parser tsqlParser) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
+func zeroOrMore(parser Parser) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
 		var results []interface{}
 
 		for {
+			_, reset := scanner.Mark()
+
 			if success, result := parser(scanner); success {
 				results = append(results, result)
 			} else {
+				reset()
 				break
 			}
 		}
@@ -85,25 +89,29 @@ func zeroOrMore(parser tsqlParser) tsqlParser {
 	}
 }
 
-func all(parsers []tsqlParser, nodify nodifyMany) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
-		start := scanner.position
+func allX(parsers ...Parser) Parser {
+	return all(parsers, nil)
+}
+
+func all(parsers []Parser, nodify nodifyMany) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
+		_, reset := scanner.Mark()
 		matchesAll := true
 		var tokens [][]TinyDBItem
 
 		for _, parser := range parsers {
-			before := scanner.position
+			before := scanner.Pos()
 
 			if success, _ := parser(scanner); !success {
 				matchesAll = false
 				break
 			}
 
-			tokens = append(tokens, scanner.items[before:scanner.position])
+			tokens = append(tokens, scanner.Range(before, scanner.Pos()))
 		}
 
 		if !matchesAll {
-			scanner.position = start
+			reset()
 		} else if nodify != nil {
 			nodify(tokens)
 		}
@@ -112,14 +120,13 @@ func all(parsers []tsqlParser, nodify nodifyMany) tsqlParser {
 	}
 }
 
-func oneOf(parsers []tsqlParser, nodify nodify) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
-		start := scanner.position
+func oneOf(parsers []Parser, nodify nodify) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
+		start, reset := scanner.Mark()
 
 		for _, parser := range parsers {
 			if success, result := parser(scanner); success {
-				token := scanner.items[start:scanner.position]
-
+				token := scanner.Range(start, scanner.Pos())
 				if nodify != nil {
 					nodify(token)
 				}
@@ -127,19 +134,23 @@ func oneOf(parsers []tsqlParser, nodify nodify) tsqlParser {
 				return true, result
 			}
 
-			scanner.position = start
+			reset()
 		}
 
 		return false, nil
 	}
 }
 
-func optional(parser tsqlParser, nodify nodify) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
-		start := scanner.position
+func optionalX(parser Parser) Parser {
+	return optional(parser, nil)
+}
+
+func optional(parser Parser, nodify nodify) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
+		start, reset := scanner.Mark()
 
 		if success, _ := parser(scanner); success {
-			token := scanner.items[start:scanner.position]
+			token := scanner.Range(start, scanner.Pos())
 
 			if nodify != nil {
 				nodify(token)
@@ -148,17 +159,17 @@ func optional(parser tsqlParser, nodify nodify) tsqlParser {
 			return true, token
 		}
 
-		scanner.position = start
+		reset()
 		return true, nil
 	}
 }
 
-func required(parser tsqlParser, nodify nodify) tsqlParser {
-	return func(scanner *tinyScanner) (bool, interface{}) {
-		start := scanner.position
+func required(parser Parser, nodify nodify) Parser {
+	return func(scanner TinyScanner) (bool, interface{}) {
+		start, reset := scanner.Mark()
 
 		if success, result := parser(scanner); success {
-			token := scanner.items[start:scanner.position]
+			token := scanner.Range(start, scanner.Pos())
 
 			if nodify != nil {
 				nodify(token)
@@ -167,7 +178,7 @@ func required(parser tsqlParser, nodify nodify) tsqlParser {
 			return true, result
 		}
 
-		scanner.position = start
+		reset()
 		return false, nil
 	}
 }

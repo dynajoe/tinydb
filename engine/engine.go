@@ -96,7 +96,7 @@ func (e *Engine) Execute(text string) (*ResultSet, error) {
 	startingTime := time.Now().UTC()
 	defer (func() {
 		duration := time.Now().UTC().Sub(startingTime)
-		e.Log.Info("\nDuration: %s\n", duration)
+		e.Log.Infof("\nDuration: %s\n", duration)
 	})()
 
 	e.Log.Debug("EXEC: ", text)
