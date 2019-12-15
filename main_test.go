@@ -75,22 +75,29 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 
 func TestInsert(t *testing.T) {
 	db, cleanUp, err := initializeTestDb()
+
 	if cleanUp != nil {
 		defer cleanUp()
 	}
+
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	companies := []string{"Netflix", "Facebook", "Apple", "Google"}
-	var results []string
+	companies := map[string]string{
+		"1": "Netflix",
+		"2": "Facebook",
+		"3": "Apple",
+		"4": "Google",
+	}
 
-	for i, c := range companies {
+	var results []string
+	for companyId, companyName := range companies {
 		result, err := db.Execute(fmt.Sprintf(`
 			INSERT INTO company (company_id, company_name)
-			VALUES ('%d', '%s')
+			VALUES ('%s', '%s')
 			RETURNING company_id;
-		`, i, c))
+		`, companyId, companyName))
 
 		if err != nil {
 			t.Error(err)
@@ -101,23 +108,29 @@ func TestInsert(t *testing.T) {
 		}
 	}
 
-	statement := `
-		SELECT c.company_name
-		FROM company c
-		WHERE c.company_name = 'Google';
-	`
-
-	result, err := db.Execute(statement)
-
-	if err != nil {
-		t.Error(err)
+	if len(results) != len(companies) {
+		t.Error("unexpected number of results from insert")
 	}
 
-	rowCount := 0
-	for r := range result.Rows {
-		fmt.Println(r)
-		rowCount++
-	}
+	for _, companyId := range results {
+		statement := fmt.Sprintf(`
+			SELECT companyName.company_name
+			FROM company companyName
+			WHERE companyName.company_id = '%s' AND companyName.company_name = '%s';
+		`, companyId, companies[companyId])
 
-	fmt.Printf("%d row(s)\n", rowCount)
+		result, err := db.Execute(statement)
+		if err != nil {
+			t.Error(err)
+		}
+
+		rowCount := 0
+		for range result.Rows {
+			rowCount++
+		}
+
+		if rowCount != 1 {
+			t.Errorf("unexpected row count [%d]", rowCount)
+		}
+	}
 }

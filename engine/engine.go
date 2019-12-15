@@ -68,6 +68,7 @@ type (
 	}
 
 	RowReader interface {
+		Scan() bool
 		Read() Row
 	}
 )
@@ -98,23 +99,27 @@ func Start(basePath string) *Engine {
 
 type rowGenerator struct {
 	csvReader *csv.Reader
+	next      []string
 }
 
 func NewRowGenerator(reader *csv.Reader) *rowGenerator {
 	return &rowGenerator{csvReader: reader}
 }
 
-func (g *rowGenerator) Read() Row {
+func (g *rowGenerator) Scan() bool {
 	data, err := g.csvReader.Read()
 
-	if err == io.EOF {
-		return Row{}
-	} else if err != nil {
-		log.Fatal(err)
+	if err == io.EOF || err != nil {
+		return false
 	}
 
-	offset, _ := strconv.ParseInt(data[0], 10, 64)
-	return Row{Data: data[1:], Offset: offset}
+	g.next = data
+	return true
+}
+
+func (g *rowGenerator) Read() Row {
+	offset, _ := strconv.ParseInt(g.next[0], 10, 64)
+	return Row{Data: g.next[1:], Offset: offset, IsValid: true}
 }
 
 // Execute runs a statement against the database engine
@@ -142,22 +147,29 @@ func (e *Engine) loadTables() {
 	e.adminLock.Unlock()
 }
 
+func (e *Engine) loadIndexes() {
+	newIndexes := buildIndexes(e.Config, e.Tables)
+	e.adminLock.Lock()
+	e.Indexes = newIndexes
+	e.adminLock.Unlock()
+}
+
+func (e *Engine) reload() {
+	e.loadTables()
+	e.loadIndexes()
+}
+
 func executeStatement(engine *Engine, statement ast.Statement) (*ResultSet, error) {
 	switch s := (statement).(type) {
 	case *ast.CreateTableStatement:
 		if _, err := createTable(engine, s); err != nil {
 			return nil, err
 		}
-		engine.loadTables()
+		engine.reload()
 		return EmptyResultSet(), nil
 	case *ast.InsertStatement:
 		_, result, err := doInsert(engine, s)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return result, nil
+		return result, err
 	case *ast.SelectStatement:
 		return doSelect(engine, s)
 	default:
@@ -186,7 +198,8 @@ func buildIndex(config *Config, job *pkJob) {
 	}
 
 	b := btree.New(5)
-	for row := rowReader.Read(); row.IsValid; {
+	for rowReader.Scan() {
+		row := rowReader.Read()
 		b.Upsert(&indexedField{
 			value:   row.Data[job.fieldIndex],
 			offsets: []int64{row.Offset},
@@ -233,31 +246,24 @@ func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btre
 
 func loadTableDefinitions(config *Config) map[string]TableDefinition {
 	tableDefinitions := make(map[string]TableDefinition)
+	matches, _ := filepath.Glob(filepath.Join(config.DataDir, "**/metadata.json"))
 
-	filepath.Walk(config.DataDir, func(p string, info os.FileInfo, err error) error {
+	for _, p := range matches {
+		data, err := ioutil.ReadFile(p)
+
 		if err != nil {
-			return err
+			panic("unable to load tables")
 		}
 
-		if strings.HasSuffix(p, "metadata.json") {
-			data, err := ioutil.ReadFile(p)
+		var tableDefinition TableDefinition
+		err = json.Unmarshal(data, &tableDefinition)
 
-			if err != nil {
-				panic("unable to load tables")
-			}
-
-			var tableDefinition TableDefinition
-			err = json.Unmarshal(data, &tableDefinition)
-
-			if err != nil {
-				panic("unable to load tables")
-			}
-
-			tableDefinitions[tableDefinition.Name] = tableDefinition
+		if err != nil {
+			panic("unable to load tables")
 		}
 
-		return nil
-	})
+		tableDefinitions[tableDefinition.Name] = tableDefinition
+	}
 
 	return tableDefinitions
 }
