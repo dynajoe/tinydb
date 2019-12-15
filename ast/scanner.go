@@ -1,6 +1,22 @@
 package ast
 
-import "fmt"
+import (
+	"fmt"
+)
+
+type SuspendFunc func(s TinyScanner) bool
+
+type TinyScanner interface {
+	Peek() TinyDBItem
+	Backup()
+	Info()
+	Next() TinyDBItem
+	Commit(landmark string)
+	Pos() int
+	Mark() (int, func())
+	Range(int, int) []TinyDBItem
+	Reset()
+}
 
 type tinyScanner struct {
 	lexer     *TinyLexer
@@ -9,6 +25,26 @@ type tinyScanner struct {
 	position  int
 	isAborted bool
 	committed string
+}
+
+// Start resets the scanner to the start
+func (scanner *tinyScanner) Reset() {
+	scanner.position = 0
+	scanner.committed = ""
+	scanner.isAborted = false
+}
+
+func (scanner *tinyScanner) Range(start int, end int) []TinyDBItem {
+	return scanner.items[start:end]
+}
+
+func (scanner *tinyScanner) Mark() (int, func()) {
+	position := scanner.position
+	committed := scanner.committed
+	return scanner.position, func() {
+		scanner.position = position
+		scanner.committed = committed
+	}
 }
 
 func (scanner *tinyScanner) Peek() TinyDBItem {
@@ -27,6 +63,10 @@ func (scanner *tinyScanner) Backup() {
 	} else {
 		panic("Attempting to back up before any tokens")
 	}
+}
+
+func (scanner *tinyScanner) Pos() int {
+	return scanner.position
 }
 
 func (scanner *tinyScanner) Info() {
@@ -59,23 +99,6 @@ func (scanner *tinyScanner) Next() TinyDBItem {
 	return token
 }
 
-func (scanner *tinyScanner) start(parser tsqlParser) (bool, interface{}) {
-	scanner.position = 0
-	scanner.committed = ""
-	scanner.isAborted = false
-
-	success, result := scanner.run(parser)
-
-	return success, result
-}
-
-func (scanner *tinyScanner) run(parser tsqlParser) (bool, interface{}) {
-	start := scanner.position
-
-	if success, result := parser(scanner); success {
-		return true, result
-	}
-
-	scanner.position = start
-	return false, nil
+func (scanner *tinyScanner) Commit(landmark string) {
+	scanner.committed = landmark
 }

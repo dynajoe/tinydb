@@ -27,12 +27,16 @@ const (
 	tsqlFrom
 	tsqlWhere
 	tsqlAs
+	tsqlIf
+	tsqlNot
+	tsqlExists
 
 	tsqlCreate
 	tsqlInsert
 	tsqlInto
 	tsqlTable
 	tsqlValues
+	tsqlReturning
 
 	tsqlEquals
 	tsqlGt
