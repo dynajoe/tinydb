@@ -103,7 +103,7 @@ func (b *BTree) maxItems() int {
 func (b *BTree) Upsert(i Item, f func(old Item, new Item)) {
 	x := b.Insert(i)
 
-	if x != i {
+	if x != nil {
 		f(i, x)
 	}
 }

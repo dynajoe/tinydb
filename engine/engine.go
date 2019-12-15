@@ -33,6 +33,12 @@ type (
 		Columns []ColumnDefinition `json:"columns"`
 	}
 
+	columnLookup struct {
+		index  int
+		column ColumnDefinition
+		alias  ast.TableAlias
+	}
+
 	indexedField struct {
 		value   string
 		offsets []int64
@@ -60,7 +66,7 @@ type (
 	}
 
 	ExecutionEnvironment struct {
-		ColumnLookup map[string]ColumnDefinition
+		ColumnLookup map[string]columnLookup
 		Tables       map[string]TableDefinition
 		Columns      []string
 		Indexes      map[string]*btree.BTree
@@ -269,15 +275,20 @@ func loadTableDefinitions(config *Config) map[string]TableDefinition {
 }
 
 func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
-	columnLookup := make(map[string]ColumnDefinition)
+	colLookup := make(map[string]columnLookup)
 	tableMetadata := make(map[string]TableDefinition)
 	allMetadata := make([]TableDefinition, len(tables))
-
+	i := 0
 	for _, tableAlias := range tables {
 		metadata, _ := engine.Tables[tableAlias.Name]
 
 		for _, c := range metadata.Columns {
-			columnLookup[fmt.Sprintf("%s.%s", tableAlias.Alias, c.Name)] = c
+			colLookup[fmt.Sprintf("%s.%s", tableAlias.Alias, c.Name)] = columnLookup{
+				index:  i,
+				alias:  tableAlias,
+				column: c,
+			}
+			i++
 		}
 
 		tableMetadata[tableAlias.Alias] = metadata
@@ -286,7 +297,7 @@ func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*Executio
 
 	return &ExecutionEnvironment{
 		Tables:       tableMetadata,
-		ColumnLookup: columnLookup,
+		ColumnLookup: colLookup,
 		Engine:       engine,
 	}, nil
 }
