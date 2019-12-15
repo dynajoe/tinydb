@@ -1,6 +1,6 @@
 SELECT person.name
 FROM person
-WHERE person.name = 'Joe';
+WHERE person.name = 'Alex';
 
 SELECT c.company_name, person.name
 FROM person, company c

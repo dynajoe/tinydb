@@ -92,13 +92,13 @@ func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) execu
 		ident, literal := ast.IdentLiteralOperation(op)
 
 		if ident != nil && literal != nil && op.Operator == "=" {
-			columnReference := env.ColumnLookup[ident.Value]
-			if columnReference.PrimaryKey {
+			col := env.ColumnLookup[ident.Value]
+			if col.column.PrimaryKey {
 				return &indexScan{
 					index:  engine.Indexes[s.table.Name],
 					value:  literal.Value,
 					table:  s.table,
-					column: columnReference,
+					column: col.column,
 				}
 			}
 		}
@@ -163,7 +163,7 @@ func (c nilEvalContext) GetValue(*ast.Ident) (interface{}, bool) {
 
 func (c evalContext) GetValue(ident *ast.Ident) (interface{}, bool) {
 	if columnIndex, ok := c.env.ColumnLookup[ident.Value]; ok {
-		return c.data[columnIndex.Offset], true
+		return c.data[columnIndex.index], true
 	}
 	return nil, false
 }
@@ -175,8 +175,17 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 	go func() {
 		defer close(results)
 
-		outerStatement, _ := s.outer.optimize(engine, env).execute(engine, env)
-		innerStatement, _ := s.inner.optimize(engine, env).execute(engine, env)
+		outerStatement, outerErr := s.outer.optimize(engine, env).execute(engine, env)
+		if outerErr != nil {
+			errorChan <- outerErr
+			return
+		}
+
+		innerStatement, innerErr := s.inner.optimize(engine, env).execute(engine, env)
+		if innerErr != nil {
+			errorChan <- outerErr
+			return
+		}
 
 		innerErrors := mergeErrors(outerStatement.Error, innerStatement.Error)
 
