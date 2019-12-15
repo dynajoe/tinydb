@@ -100,6 +100,18 @@ func (b *BTree) maxItems() int {
 	return b.degree*2 - 1
 }
 
+func (b *BTree) Upsert(i Item, f func(old Item, new Item)) {
+	x := b.Insert(i)
+
+	if x != i {
+		f(i, x)
+	}
+}
+
+func (b *BTree) Len() int {
+	return b.length
+}
+
 var (
 	nilItems    = make(items, 16)
 	nilChildren = make(children, 16)

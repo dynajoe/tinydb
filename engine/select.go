@@ -2,15 +2,17 @@ package engine
 
 import (
 	"github.com/joeandaverde/tinydb/ast"
-	"io"
-	"log"
 	"sync"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
 )
 
 // Row is a row in a result
-type Row []string
+type Row struct {
+	Data    []string
+	Offset  int64
+	IsValid bool
+}
 
 // ColumnList represents a list of columns of a result set
 type ColumnList []string
@@ -67,18 +69,8 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 		defer close(results)
 		defer close(errorChan)
 
-		for {
-			row, err := csvFile.Read()
-
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				log.Fatal(err)
-				errorChan <- err
-				break
-			}
-
-			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: row}).Value != true {
+		for row := csvFile.Read(); row.IsValid; {
+			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: row.Data}).Value != true {
 				continue
 			}
 
@@ -133,23 +125,12 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 		})
 
 		if f, ok := item.(*indexedField); ok {
-			offset := 0
-			for {
-				row, err := csvFile.Read()
-
-				if err != nil {
-					if err != io.EOF {
-						log.Fatal(err)
-						errorChan <- err
+			for row := csvFile.Read(); row.IsValid; {
+				for _, o := range f.offsets {
+					if row.Offset == o {
+						results <- row
+						break
 					}
-
-					break
-				}
-
-				offset++
-
-				if f.offset == offset {
-					results <- row
 				}
 			}
 		}
@@ -208,19 +189,23 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 		// Materialize the inner dataset, ideally filter
 		innerRows := make([][]string, 0)
 		for i := range innerStatement.Rows {
-			innerRows = append(innerRows, i)
+			innerRows = append(innerRows, i.Data)
 		}
 
 		// Cartesian product
 		for o := range outerStatement.Rows {
 			for _, i := range innerRows {
-				row := append(append([]string{}, o...), i...)
+				row := append(append([]string{}, o.Data...), i...)
 
 				if s.filter != nil && ast.Evaluate(s.filter, &evalContext{env: env, data: row}).Value != true {
 					continue
 				}
 
-				results <- row
+				results <- Row{
+					Data:    row,
+					Offset:  0,
+					IsValid: false,
+				}
 			}
 		}
 	}()

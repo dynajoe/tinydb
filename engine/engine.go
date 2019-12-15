@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,8 +34,8 @@ type (
 	}
 
 	indexedField struct {
-		value  string
-		offset int
+		value   string
+		offsets []int64
 	}
 
 	pkJob struct {
@@ -65,6 +66,10 @@ type (
 		Indexes      map[string]*btree.BTree
 		Engine       *Engine
 	}
+
+	RowReader interface {
+		Read() Row
+	}
 )
 
 func (f *indexedField) Less(than btree.Item) bool {
@@ -89,6 +94,27 @@ func Start(basePath string) *Engine {
 		Config:  config,
 		Log:     logger,
 	}
+}
+
+type rowGenerator struct {
+	csvReader *csv.Reader
+}
+
+func NewRowGenerator(reader *csv.Reader) *rowGenerator {
+	return &rowGenerator{csvReader: reader}
+}
+
+func (g *rowGenerator) Read() Row {
+	data, err := g.csvReader.Read()
+
+	if err == io.EOF {
+		return Row{}
+	} else if err != nil {
+		log.Fatal(err)
+	}
+
+	offset, _ := strconv.ParseInt(data[0], 10, 64)
+	return Row{Data: data[1:], Offset: offset}
 }
 
 // Execute runs a statement against the database engine
@@ -139,46 +165,38 @@ func executeStatement(engine *Engine, statement ast.Statement) (*ResultSet, erro
 	}
 }
 
-func newTableScanner(config *Config, tableName string) (*csv.Reader, error) {
+func newTableScanner(config *Config, tableName string) (RowReader, error) {
 	csvFile, err := os.Open(filepath.Join(config.DataDir, tableName, "data.csv"))
 
 	if err != nil {
 		return nil, err
 	}
 
-	tableCsv := csv.NewReader(bufio.NewReader(csvFile))
+	reader := bufio.NewReader(csvFile)
+	tableCsv := csv.NewReader(reader)
 
-	return tableCsv, nil
+	return NewRowGenerator(tableCsv), nil
 }
 
 func buildIndex(config *Config, job *pkJob) {
-	btree := btree.New(5)
-
-	csvReader, err := newTableScanner(config, job.table.Name)
+	rowReader, err := newTableScanner(config, job.table.Name)
 
 	if err != nil {
 		panic("unable to build index")
 	}
 
-	rowCount := 0
-	for {
-		data, err := csvReader.Read()
-
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Fatal(err)
-		}
-
-		rowCount++
-
-		btree.Insert(&indexedField{
-			value:  data[job.fieldIndex],
-			offset: rowCount,
+	b := btree.New(5)
+	for row := rowReader.Read(); row.IsValid; {
+		b.Upsert(&indexedField{
+			value:   row.Data[job.fieldIndex],
+			offsets: []int64{row.Offset},
+		}, func(old, new btree.Item) {
+			newField := new.(*indexedField)
+			newField.offsets = append(old.(*indexedField).offsets, row.Offset)
 		})
 	}
 
-	job.result = btree
+	job.result = b
 }
 
 func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btree.BTree {
@@ -188,15 +206,15 @@ func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btre
 	var wg sync.WaitGroup
 
 	for _, t := range m {
-		for i, c := range t.Columns {
+		for _, c := range t.Columns {
 			if c.PrimaryKey {
 				wg.Add(1)
-				go func(i int, t TableDefinition) {
+				go func(t TableDefinition, c ColumnDefinition) {
 					defer wg.Done()
-					job := &pkJob{fieldIndex: i, table: t}
+					job := &pkJob{fieldIndex: c.Offset, table: t}
 					buildIndex(config, job)
 					results <- job
-				}(i, t)
+				}(t, c)
 			}
 		}
 	}

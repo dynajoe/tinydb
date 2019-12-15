@@ -91,19 +91,14 @@ func parseCreateTable(scanner TinyScanner) (*CreateTableStatement, error) {
 		keyword(tsqlCreate),
 		keyword(tsqlTable),
 		optional(
-			allX(token(tsqlIf), token(tsqlNot), token(tsqlExists)),
+			allX(keyword(tsqlIf), keyword(tsqlNot), keyword(tsqlExists)),
 			func(token []TinyDBItem) {
 				createTableStatement.IfNotExists = true
 			}),
 		ident(func(tableName string) {
 			createTableStatement.TableName = tableName
 		}),
-		parens(
-			separatedBy1(
-				commaSeparator,
-				columnDefinition,
-			),
-		),
+		parensCommaSep(columnDefinition),
 	)(scanner)
 
 	if ok {

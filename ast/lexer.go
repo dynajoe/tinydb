@@ -170,6 +170,16 @@ func lexAlphaNumeric(l *TinyLexer) stateFn {
 			l.emit(tsqlValues)
 		} else if strings.ToUpper(value) == "INTO" {
 			l.emit(tsqlInto)
+		} else if strings.ToUpper(value) == "IF" {
+			l.emit(tsqlIf)
+		} else if strings.ToUpper(value) == "NOT" {
+			l.emit(tsqlNot)
+		} else if strings.ToUpper(value) == "EXISTS" {
+			l.emit(tsqlExists)
+		} else if strings.ToUpper(value) == "RETURNING" {
+			l.emit(tsqlReturning)
+		} else if strings.ToUpper(value) == "VALUES" {
+			l.emit(tsqlValues)
 		} else if strings.ToUpper(value) == "TRUE" || strings.ToUpper(value) == "FALSE" {
 			l.emit(tsqlBoolean)
 		} else {
