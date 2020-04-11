@@ -4,10 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/joeandaverde/tinydb/ast"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/joeandaverde/tinydb/ast"
 )
 
 func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*TableDefinition, error) {

@@ -1,8 +1,9 @@
 package engine
 
 import (
-	"github.com/joeandaverde/tinydb/ast"
 	"sync"
+
+	"github.com/joeandaverde/tinydb/ast"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
 )
