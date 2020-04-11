@@ -3,9 +3,12 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
+	"os"
 )
 
+// FileHeader represents a database file header
 type FileHeader struct {
 	// 16-17	PageSize	uint16	Size of database page
 	PageSize uint16
@@ -19,11 +22,42 @@ type FileHeader struct {
 	UserCookie uint32
 }
 
-const fileFormat = "SQLite format 3\000"
+type DatabaseFile struct {
+	pager *Pager
+}
 
+func Open(path string) (*DatabaseFile, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	// The file was created. Write file header.
+	if info.Size() == 0 {
+		h := NewFileHeader()
+		if _, err := file.Write(h.ToBytes()); err != nil {
+			return nil, err
+		}
+		if err := file.Sync(); err != nil {
+			return nil, err
+		}
+	}
+
+	return &DatabaseFile{
+		pager: NewPager(file),
+	}, nil
+}
+
+// NewFileHeader creates a new FileHeader
 func NewFileHeader() FileHeader {
 	return FileHeader{
-		PageSize:          100,
+		PageSize:          512,
 		FileChangeCounter: 0,
 		SchemaVersion:     0,
 		PageCacheSize:     20000,
@@ -31,10 +65,11 @@ func NewFileHeader() FileHeader {
 	}
 }
 
+// ToBytes encodes FileHeader into 100 bytes
 func (h FileHeader) ToBytes() []byte {
 	header := make([]byte, 100, 100)
 
-	copy(header, []byte(fileFormat))
+	copy(header, []byte("SQLite format 3\000"))
 
 	// PageSize: The two-byte value beginning at offset 16 determines the page size of the database.
 	// For SQLite versions 3.7.0.1 (2010-08-04) and earlier, this value is interpreted as a
@@ -45,7 +80,7 @@ func (h FileHeader) ToBytes() []byte {
 	// of as a magic number to represent the 65536 page size. Or one can view the two-byte field as a
 	// little endian number and say that it represents the page size divided by 256. These two interpretations of
 	// the page-size field are equivalent.
-	binary.LittleEndian.PutUint16(header[16:], h.PageSize)
+	binary.BigEndian.PutUint16(header[16:], h.PageSize)
 
 	// 18	1	File format write version. 1 for legacy; 2 for WAL.
 	header[18] = 2
@@ -60,43 +95,50 @@ func (h FileHeader) ToBytes() []byte {
 	// 23	1	Leaf payload fraction. Must be 32.
 	header[23] = 32
 
-	binary.LittleEndian.PutUint32(header[24:], h.FileChangeCounter)
-	binary.LittleEndian.PutUint32(header[32:], 0)
-	binary.LittleEndian.PutUint32(header[36:], 0)
-	binary.LittleEndian.PutUint32(header[40:], h.SchemaVersion)
-	binary.LittleEndian.PutUint32(header[44:], 1)
-	binary.LittleEndian.PutUint32(header[48:], h.PageCacheSize)
-	binary.LittleEndian.PutUint32(header[52:], 0)
-	binary.LittleEndian.PutUint32(header[56:], 1)
-	binary.LittleEndian.PutUint32(header[60:], h.UserCookie)
-	binary.LittleEndian.PutUint32(header[64:], 0)
+	binary.BigEndian.PutUint32(header[24:], h.FileChangeCounter)
+	binary.BigEndian.PutUint32(header[32:], 0)
+	binary.BigEndian.PutUint32(header[36:], 0)
+	binary.BigEndian.PutUint32(header[40:], h.SchemaVersion)
+	binary.BigEndian.PutUint32(header[44:], 1)
+	binary.BigEndian.PutUint32(header[48:], h.PageCacheSize)
+	binary.BigEndian.PutUint32(header[52:], 0)
+	binary.BigEndian.PutUint32(header[56:], 1)
+	binary.BigEndian.PutUint32(header[60:], h.UserCookie)
+	binary.BigEndian.PutUint32(header[64:], 0)
 
 	return header
 }
 
-func (h PageHeader) ToBytes() []byte {
-	var bs bytes.Buffer
-	binary.Write(&bs, binary.LittleEndian, h)
-	return bs.Bytes()
+// ToBytes encodes PageHeader
+func (h PageHeader) Write(w io.Writer) error {
+	return binary.Write(w, binary.BigEndian, h)
 }
 
-func FromBytes(bs []byte) FileHeader {
+// ReadHeader deserializes a FileHeader
+func ReadHeader(r io.Reader) FileHeader {
+	buf := make([]byte, 100)
+
+	if n, err := r.Read(buf); err != nil || n < 100 {
+		panic("unexpected header buffer size")
+	}
+
 	return FileHeader{
-		PageSize:          binary.LittleEndian.Uint16(bs[16:18]),
-		FileChangeCounter: binary.LittleEndian.Uint32(bs[24:28]),
-		SchemaVersion:     binary.LittleEndian.Uint32(bs[40:44]),
-		PageCacheSize:     binary.LittleEndian.Uint32(bs[48:52]),
-		UserCookie:        binary.LittleEndian.Uint32(bs[60:64]),
+		PageSize:          binary.BigEndian.Uint16(buf[16:18]),
+		FileChangeCounter: binary.BigEndian.Uint32(buf[24:28]),
+		SchemaVersion:     binary.BigEndian.Uint32(buf[40:44]),
+		PageCacheSize:     binary.BigEndian.Uint32(buf[48:52]),
+		UserCookie:        binary.BigEndian.Uint32(buf[60:64]),
 	}
 }
 
+// NewPageHeader creates a new PageHeader
 func NewPageHeader(t PageType) PageHeader {
 	return PageHeader{
 		Type: t,
 	}
 }
 
-// PageType tye type of page. See
+// PageType type of page. See associated enumeration values.
 type PageType uint8
 
 const (
@@ -134,8 +176,39 @@ type PageHeader struct {
 	RightPage uint32
 }
 
+// TablePage represents a raw table page, the data is all
 type TablePage struct {
-	Header PageHeader
+	PageHeader
+	Data []byte
+}
+
+func (h TablePage) Write(w io.Writer) error {
+	return binary.Write(w, binary.BigEndian, h)
+}
+
+func ReadTablePage(reader io.Reader, pageSize uint16) (*TablePage, error) {
+	page := make([]byte, pageSize)
+
+	bytesRead, err := reader.Read(page)
+	if err != nil {
+		return nil, err
+	}
+	if bytesRead != int(pageSize) {
+		return nil, errors.New("unexpected page size")
+	}
+
+	tablePage := TablePage{
+		PageHeader: PageHeader{
+			Type:        PageType(page[0]),
+			FreeOffset:  binary.BigEndian.Uint16(page[1:3]),
+			NumCells:    binary.BigEndian.Uint16(page[3:5]),
+			CellsOffset: binary.BigEndian.Uint16(page[5:7]),
+			RightPage:   binary.BigEndian.Uint32(page[8:11]),
+		},
+		Data: page[12:],
+	}
+
+	return &tablePage, nil
 }
 
 type InternalTableCell struct {
@@ -159,21 +232,25 @@ const (
 	Text
 )
 
+// Record is a set of fields
 type Record struct {
 	Fields []Field
 }
 
+// Field is a field in a database record
 type Field struct {
 	Type SQLType
 	Data interface{}
 }
 
+// NewRecord creates a database record from a set of fields
 func NewRecord(fields []Field) *Record {
 	return &Record{
 		Fields: fields,
 	}
 }
 
+// ToBytes serializes a database record for storage
 func (r *Record) ToBytes() []byte {
 	var buf bytes.Buffer
 
@@ -233,7 +310,7 @@ func (r *Record) ToBytes() []byte {
 
 	bs := buf.Bytes()
 	bs[0] = headerLen
-	return buf.Bytes()
+	return bs
 }
 
 // Put28BitInt writes a 28 bit integer into 4 bytes based on the encoding described here:
