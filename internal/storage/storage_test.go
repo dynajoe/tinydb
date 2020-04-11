@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,14 +13,15 @@ func TestFileHeader_ToBytes(t *testing.T) {
 	h := NewFileHeader()
 	bs := h.ToBytes()
 	assert.Equal([]byte{'S', 'Q', 'L', 'i', 't', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't', ' ', '3', 0}, bs[:16])
-	assert.Equal([]byte{0x64, 0x0}, bs[16:18])
+	assert.Equal(h.PageSize, binary.BigEndian.Uint16(bs[16:18]))
+	assert.Len(bs, 100)
 }
 
 func TestFileHeader_FromBytes(t *testing.T) {
 	assert := require.New(t)
 	h := NewFileHeader()
 	bs := h.ToBytes()
-	result := FromBytes(bs)
+	result := ReadHeader(bytes.NewReader(bs))
 	assert.Equal(h, result)
 }
 
