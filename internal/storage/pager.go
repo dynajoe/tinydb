@@ -11,16 +11,19 @@ const pageStart = 100
 
 // Pager manages database paging to and from disk
 type Pager struct {
-	fileHeader       FileHeader
-	file             *os.File
-	databaseFilePath string
-	pageCount        int
-	pageCache        map[int]*TablePage
-	mu               *sync.RWMutex
+	fileHeader FileHeader
+	file       *os.File
+	pageCount  int
+	pageCache  map[int]*TablePage
+	mu         *sync.RWMutex
 }
 
 // NewPager opens a new pager using the path specified
 func NewPager(file *os.File) *Pager {
+	if _, err := file.Seek(0, 0); err != nil {
+		panic(err.Error())
+	}
+
 	header := ReadHeader(file)
 
 	return &Pager{

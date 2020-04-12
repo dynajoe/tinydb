@@ -10,17 +10,29 @@ import (
 
 func TestFileHeader_ToBytes(t *testing.T) {
 	assert := require.New(t)
+
+	buf := bytes.Buffer{}
 	h := NewFileHeader()
-	bs := h.ToBytes()
+
+	// Write the contents to Writer
+	err := h.Write(&buf)
+	assert.NoError(err)
+
+	// Assert
+	bs := buf.Bytes()
 	assert.Equal([]byte{'S', 'Q', 'L', 'i', 't', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't', ' ', '3', 0}, bs[:16])
 	assert.Equal(h.PageSize, binary.BigEndian.Uint16(bs[16:18]))
 	assert.Len(bs, 100)
 }
 
-func TestFileHeader_FromBytes(t *testing.T) {
+func TestFileHeader_ReadHeader(t *testing.T) {
 	assert := require.New(t)
+	buf := bytes.Buffer{}
 	h := NewFileHeader()
-	bs := h.ToBytes()
+	err := h.Write(&buf)
+	assert.NoError(err)
+
+	bs := buf.Bytes()
 	result := ReadHeader(bytes.NewReader(bs))
 	assert.Equal(h, result)
 }
