@@ -40,24 +40,45 @@ func Open(path string) (*DatabaseFile, error) {
 
 	// The file was created. Write file header.
 	if info.Size() == 0 {
-		h := NewFileHeader()
-		if _, err := file.Write(h.ToBytes()); err != nil {
-			return nil, err
-		}
-		if err := file.Sync(); err != nil {
+		if err := initDataFile(file); err != nil {
 			return nil, err
 		}
 	}
 
+	pager := NewPager(file)
+
 	return &DatabaseFile{
-		pager: NewPager(file),
+		pager: pager,
 	}, nil
+}
+
+func initDataFile(file *os.File) error {
+	header := NewFileHeader()
+	if err := header.Write(file); err != nil {
+		return err
+	}
+
+	// Add a page to file to store the schema table
+	pager := NewPager(file)
+	pager.Allocate()
+	firstPage := TablePage{
+		PageHeader: NewPageHeader(PageTypeLeaf),
+		Data:       nil,
+	}
+	pager.Write(1, &firstPage)
+
+	// fsync
+	if err := file.Sync(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // NewFileHeader creates a new FileHeader
 func NewFileHeader() FileHeader {
 	return FileHeader{
-		PageSize:          512,
+		PageSize:          4096,
 		FileChangeCounter: 0,
 		SchemaVersion:     0,
 		PageCacheSize:     20000,
@@ -65,8 +86,8 @@ func NewFileHeader() FileHeader {
 	}
 }
 
-// ToBytes encodes FileHeader into 100 bytes
-func (h FileHeader) ToBytes() []byte {
+// Write writes FileHeader to a file
+func (h FileHeader) Write(w io.Writer) error {
 	header := make([]byte, 100, 100)
 
 	copy(header, []byte("SQLite format 3\000"))
@@ -106,7 +127,11 @@ func (h FileHeader) ToBytes() []byte {
 	binary.BigEndian.PutUint32(header[60:], h.UserCookie)
 	binary.BigEndian.PutUint32(header[64:], 0)
 
-	return header
+	if _, err := w.Write(header); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ToBytes encodes PageHeader
@@ -117,7 +142,6 @@ func (h PageHeader) Write(w io.Writer) error {
 // ReadHeader deserializes a FileHeader
 func ReadHeader(r io.Reader) FileHeader {
 	buf := make([]byte, 100)
-
 	if n, err := r.Read(buf); err != nil || n < 100 {
 		panic("unexpected header buffer size")
 	}
