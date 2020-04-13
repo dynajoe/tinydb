@@ -15,35 +15,81 @@ type Pager struct {
 	mu         *sync.RWMutex
 }
 
-// NewPager opens a new pager using the path specified
-func NewPager(file *os.File) *Pager {
-	if _, err := file.Seek(0, 0); err != nil {
-		panic(err.Error())
+// Open opens a new pager using the path specified.
+// The pager owns the file.
+func Open(path string) (*Pager, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
+	if err != nil {
+		return nil, err
 	}
 
-	header := ReadHeader(file)
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
 
+	// Set up the file header for the new database
+	if info.Size() == 0 {
+		header := NewFileHeader()
+		if err := header.Write(file); err != nil {
+			return nil, err
+		}
+		if err := file.Sync(); err != nil {
+			return nil, err
+		}
+		return &Pager{
+			fileHeader: header,
+			file:       file,
+			pageCache:  make(map[int]*MemPage),
+			mu:         &sync.RWMutex{},
+		}, nil
+	}
+
+	// Opening an existing database
+	headerBytes := make([]byte, 100)
+	if _, err := file.ReadAt(headerBytes, 0); err != nil {
+		return nil, err
+	}
+
+	header := ParseFileHeader(headerBytes)
 	return &Pager{
 		fileHeader: header,
 		file:       file,
 		pageCache:  make(map[int]*MemPage),
 		mu:         &sync.RWMutex{},
-	}
+	}, nil
 }
 
+// NewPage creates a new database page.
+//
+// Page 1 of a database file is the root page of a table b-tree that
+// holds a special table named "sqlite_master" (or "sqlite_temp_master" in
+// the case of a TEMP database) which stores the complete database schema.
+// The structure of the sqlite_master table is as if it had been
+// created using the following SQL:
+//
+// CREATE TABLE sqlite_master(
+//    type text,
+//    name text,
+//    tbl_name text,
+//    rootpage integer,
+//    sql text
+// );
 func NewPage(page int, pageSize uint16) *MemPage {
-	dataLen := pageSize
+	header := NewPageHeader(PageTypeLeaf, pageSize)
 	if page == 1 {
-		dataLen = pageSize - 100
+		header.CellsOffset = 100
+		header.FreeOffset = 100
 	}
+
 	return &MemPage{
-		PageHeader: NewPageHeader(PageTypeLeaf, dataLen),
+		PageHeader: header,
 		PageNumber: page,
-		Data:       make([]byte, dataLen),
+		Data:       make([]byte, pageSize),
 	}
 }
 
-// Read reads a TablePage from disk at the specified page index
+// Read reads a full page from disk
 func (p *Pager) Read(page int) (*MemPage, error) {
 	p.mu.RLock()
 	if page < 1 || page > p.pageCount {
@@ -71,13 +117,12 @@ func (p *Pager) Read(page int) (*MemPage, error) {
 		return tablePage, nil
 	}
 
-	// Read raw bytes into a TablePage starting at offset
-	if _, err := p.file.Seek(p.pageOffset(page), 0); err != nil {
+	if _, err := p.file.Seek(PageOffset(page, p.fileHeader.PageSize), 0); err != nil {
 		return nil, err
 	}
 
 	// Read the TablePage and cache the result
-	tablePage, err := ReadPage(p.file, p.fileHeader.PageSize)
+	tablePage, err := ReadPage(page, p.fileHeader.PageSize, p.file)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +140,8 @@ func (p *Pager) Write(page *MemPage) error {
 		return fmt.Errorf("page [%d] out of bounds", page)
 	}
 
-	if _, err := p.file.Seek(p.pageOffset(page.PageNumber), 0); err != nil {
+	// Overwrite the entire page
+	if _, err := p.file.Seek(PageOffset(page.PageNumber, page.PageSize), 0); err != nil {
 		return err
 	}
 
@@ -115,17 +161,9 @@ func (p *Pager) Write(page *MemPage) error {
 }
 
 // Allocate virtually allocates a new page in the pager for a TablePage
-func (p *Pager) Allocate() error {
+func (p *Pager) Allocate() (*MemPage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pageCount = p.pageCount + 1
-	return nil
-}
-
-func (p *Pager) pageOffset(page int) int64 {
-	// Page 1 starts after the file header (100 bytes)
-	if page == 1 {
-		return 100
-	}
-	return int64(page-1) * int64(p.fileHeader.PageSize)
+	return NewPage(p.pageCount, p.fileHeader.PageSize), nil
 }
