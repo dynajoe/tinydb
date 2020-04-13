@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ufwb version="1.17">
+    <grammar name="SQLite" start="id:514" author="Joe Andaverde" fileextension="db">
+        <description>Grammar for DB files</description>
+        <structure name="FileHeader" id="515" length="100" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <string name="Magic" id="516" type="fixed-length" length="16"/>
+            <number name="PageSize" id="517" type="integer" length="2"/>
+            <number name="FormatWrite" id="543" type="integer" length="1"/>
+            <number name="FormatRead" id="544" type="integer" length="1"/>
+            <number name="Reserved" id="545" type="integer" length="1"/>
+            <number name="PayloadFraction" id="546" type="integer" length="1"/>
+            <number name="PayloadFractionMin" id="547" type="integer" length="1"/>
+            <number name="LeafPayloadFraction" id="548" type="integer" length="1"/>
+            <number name="FileChangeCounter" id="549" type="integer" length="4"/>
+            <number name="SizeInPages" id="550" type="integer" length="4"/>
+        </structure>
+        <structure name="LeafCell" id="531" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <number name="DataSize" id="532" fillcolor="FFAD51" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2" display="hex"/>
+            <structure name="Record" id="538" length="0">
+                <number name="RecordHeaderSize" id="540" fillcolor="9C6EFF" type="integer" length="1"/>
+                <binary name="ColumnTypes" id="542" fillcolor="34EDFF" length="RecordHeaderSize-1"/>
+            </structure>
+        </structure>
+        <structure name="SQLite Page 1" id="514" length="4096" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <structref name="FileHeader" id="551" structure="id:515"/>
+            <structure name="PageHeader" id="519" length="8">
+                <binary name="PageType" id="520" length="1">
+                    <fixedvalues>
+                        <fixedvalue name="Leaf" value="0D"/>
+                    </fixedvalues>
+                </binary>
+                <number name="FreeBlock" id="521" type="integer" length="2"/>
+                <number name="CellCount" id="522" type="integer" length="2"/>
+                <number name="CellsOffset" id="523" type="integer" length="2"/>
+                <number name="Unused" id="524" type="integer" length="1"/>
+            </structure>
+            <structure name="Cells" id="526">
+                <number name="Cells" id="527" strokecolor="F56C85" fillcolor="00FF2C" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2"/>
+                <offset name="LeafCell" id="535" fillcolor="FF2D6C" length="1" references="id:531" relative-to="id:514" additional="CellsOffset" follownullreference="yes"/>
+            </structure>
+        </structure>
+    </grammar>
+</ufwb>
