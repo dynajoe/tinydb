@@ -102,6 +102,7 @@ func parseCreateTable(scanner TinyScanner) (*CreateTableStatement, error) {
 	)(scanner)
 
 	if ok {
+		createTableStatement.RawText = scanner.Text()
 		return &createTableStatement, nil
 	}
 

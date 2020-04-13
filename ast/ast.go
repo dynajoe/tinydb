@@ -31,6 +31,7 @@ type CreateTableStatement struct {
 	TableName   string
 	IfNotExists bool
 	Columns     []ColumnDefinition
+	RawText     string
 }
 
 // ColumnDefinition represents a specification for a column in a table
