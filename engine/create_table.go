@@ -1,35 +1,57 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/joeandaverde/tinydb/ast"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*TableDefinition, error) {
-	tablePath := filepath.Join(engine.Config.DataDir, strings.ToLower(createStatement.TableName))
+	//tablePath := filepath.Join(engine.Config.DataDir, strings.ToLower(createStatement.TableName))
 
-	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("table already exists")
-	}
+	// // TODO: lookup in master table
+	// if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
+	// 	return nil, fmt.Errorf("table already exists")
+	// }
 
-	// The table doesn't exist, proceed.
-	if err := os.MkdirAll(tablePath, os.ModePerm); err != nil {
-		return nil, err
-	}
+	tableRecord := storage.NewRecord([]storage.Field{
+		{
+			Type: storage.Text,
+			// type: text
+			Data: "table",
+		},
+		{
+			Type: storage.Text,
+			// name: text
+			Data: createStatement.TableName,
+		},
+		{
+			Type: storage.Text,
+			// tablename: text
+			Data: createStatement.TableName,
+		},
+		{
+			Type: storage.Byte,
+			// rootpage: integer
+			Data: 1,
+		},
+		{
+			Type: storage.Text,
+			// sql: text
+			Data: createStatement.RawText,
+		},
+	})
 
-	f, err := os.Create(filepath.Join(tablePath, "./metadata.json"))
-
+	// Update Page 1
+	pageOne, err := engine.Pager.Read(1)
 	if err != nil {
 		return nil, err
 	}
-
-	w := bufio.NewWriter(f)
+	if err := storage.WriteRecord(pageOne, tableRecord); err != nil {
+		return nil, err
+	}
+	if err := engine.Pager.Write(pageOne); err != nil {
+		return nil, err
+	}
 
 	var columnDefinitions []ColumnDefinition
 	for i, c := range createStatement.Columns {
@@ -45,22 +67,6 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		Name:    createStatement.TableName,
 		Columns: columnDefinitions,
 	}
-
-	contents, err := json.Marshal(tableMetadata)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := w.Write(contents); err != nil {
-		return nil, err
-	}
-
-	if err := w.Flush(); err != nil {
-		return nil, err
-	}
-
-	_, err = os.Create(filepath.Join(tablePath, "./data.csv"))
 
 	return &tableMetadata, nil
 }

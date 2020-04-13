@@ -6,15 +6,12 @@ import (
 	"sync"
 )
 
-// Pages start after the file header (100 bytes)
-const pageStart = 100
-
 // Pager manages database paging to and from disk
 type Pager struct {
 	fileHeader FileHeader
 	file       *os.File
 	pageCount  int
-	pageCache  map[int]*TablePage
+	pageCache  map[int]*MemPage
 	mu         *sync.RWMutex
 }
 
@@ -29,12 +26,25 @@ func NewPager(file *os.File) *Pager {
 	return &Pager{
 		fileHeader: header,
 		file:       file,
+		pageCache:  make(map[int]*MemPage),
 		mu:         &sync.RWMutex{},
 	}
 }
 
+func NewPage(page int, pageSize uint16) *MemPage {
+	dataLen := pageSize
+	if page == 1 {
+		dataLen = pageSize - 100
+	}
+	return &MemPage{
+		PageHeader: NewPageHeader(PageTypeLeaf, dataLen),
+		PageNumber: page,
+		Data:       make([]byte, dataLen),
+	}
+}
+
 // Read reads a TablePage from disk at the specified page index
-func (p *Pager) Read(page int) (*TablePage, error) {
+func (p *Pager) Read(page int) (*MemPage, error) {
 	p.mu.RLock()
 	if page < 1 || page > p.pageCount {
 		return nil, fmt.Errorf("page [%d] out of bounds", page)
@@ -67,7 +77,7 @@ func (p *Pager) Read(page int) (*TablePage, error) {
 	}
 
 	// Read the TablePage and cache the result
-	tablePage, err := ReadTablePage(p.file, p.fileHeader.PageSize)
+	tablePage, err := ReadPage(p.file, p.fileHeader.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -77,28 +87,29 @@ func (p *Pager) Read(page int) (*TablePage, error) {
 }
 
 // Write writes a TablePage to disk at the specified page index
-func (p *Pager) Write(page int, tablePage *TablePage) error {
+func (p *Pager) Write(page *MemPage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if page < 1 || page > p.pageCount {
+	if page.PageNumber < 1 || page.PageNumber > p.pageCount {
 		return fmt.Errorf("page [%d] out of bounds", page)
 	}
 
-	if _, err := p.file.Seek(p.pageOffset(page), 0); err != nil {
+	if _, err := p.file.Seek(p.pageOffset(page.PageNumber), 0); err != nil {
 		return err
 	}
 
 	// Write the page to disk and update cache
-	if err := tablePage.Write(p.file); err != nil {
+	if err := page.Write(p.file); err != nil {
 		return err
 	}
+
 	// fsync
 	if err := p.file.Sync(); err != nil {
 		return err
 	}
 
-	p.pageCache[page] = tablePage
+	p.pageCache[page.PageNumber] = page
 
 	return nil
 }
@@ -112,5 +123,9 @@ func (p *Pager) Allocate() error {
 }
 
 func (p *Pager) pageOffset(page int) int64 {
-	return pageStart + int64(page-1)*int64(p.fileHeader.PageSize)
+	// Page 1 starts after the file header (100 bytes)
+	if page == 1 {
+		return 100
+	}
+	return int64(page-1) * int64(p.fileHeader.PageSize)
 }
