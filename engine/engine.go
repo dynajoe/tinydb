@@ -5,18 +5,21 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"github.com/joeandaverde/tinydb/ast"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/joeandaverde/tinydb/ast"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/joeandaverde/tinydb/internal/btree"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 type (
@@ -62,6 +65,7 @@ type (
 		Tables    map[string]TableDefinition
 		Log       *log.Logger
 		Config    *Config
+		Pager     *storage.Pager
 		adminLock sync.Mutex
 	}
 
@@ -94,12 +98,17 @@ func Start(basePath string) *Engine {
 	tables := loadTableDefinitions(config)
 	indexes := buildIndexes(config, tables)
 	logger := log.New()
+	pager, err := storage.Open(path.Join(config.DataDir, "tiny.db"))
+	if err != nil {
+		panic("failed to open database")
+	}
 
 	return &Engine{
 		Tables:  tables,
 		Indexes: indexes,
 		Config:  config,
 		Log:     logger,
+		Pager:   pager,
 	}
 }
 

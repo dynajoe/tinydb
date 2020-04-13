@@ -22,11 +22,7 @@ type FileHeader struct {
 	UserCookie uint32
 }
 
-type DatabaseFile struct {
-	pager *Pager
-}
-
-func Open(path string) (*DatabaseFile, error) {
+func Open(path string) (*Pager, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
 	if err != nil {
 		return nil, err
@@ -38,41 +34,53 @@ func Open(path string) (*DatabaseFile, error) {
 		return nil, err
 	}
 
-	// The file was created. Write file header.
+	// The file was created.
+	// Initialize the database file.
 	if info.Size() == 0 {
-		if err := initDataFile(file); err != nil {
-			return nil, err
-		}
+		return initDataFile(file)
 	}
 
-	pager := NewPager(file)
-
-	return &DatabaseFile{
-		pager: pager,
-	}, nil
+	return NewPager(file), nil
 }
 
-func initDataFile(file *os.File) error {
+func initDataFile(file *os.File) (*Pager, error) {
 	header := NewFileHeader()
 	if err := header.Write(file); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Add a page to file to store the schema table
 	pager := NewPager(file)
-	pager.Allocate()
-	firstPage := TablePage{
-		PageHeader: NewPageHeader(PageTypeLeaf),
-		Data:       nil,
+	if err := pager.Allocate(); err != nil {
+		return nil, err
 	}
-	pager.Write(1, &firstPage)
+
+	// Initialize page one
+	pageOne := NewPage(1, header.PageSize)
+	if err := pager.Write(pageOne); err != nil {
+		return nil, err
+	}
+
+	// Page 1 of a database file is the root page of a table b-tree that
+	// holds a special table named "sqlite_master" (or "sqlite_temp_master" in
+	// the case of a TEMP database) which stores the complete database schema.
+	// The structure of the sqlite_master table is as if it had been
+	// created using the following SQL:
+	//
+	// CREATE TABLE sqlite_master(
+	//    type text,
+	//    name text,
+	//    tbl_name text,
+	//    rootpage integer,
+	//    sql text
+	// );
 
 	// fsync
 	if err := file.Sync(); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return pager, nil
 }
 
 // NewFileHeader creates a new FileHeader
@@ -156,9 +164,12 @@ func ReadHeader(r io.Reader) FileHeader {
 }
 
 // NewPageHeader creates a new PageHeader
-func NewPageHeader(t PageType) PageHeader {
+func NewPageHeader(t PageType, pageSize uint16) PageHeader {
 	return PageHeader{
-		Type: t,
+		Type:        t,
+		CellsOffset: pageSize,
+		NumCells:    0,
+		FreeOffset:  0,
 	}
 }
 
@@ -179,6 +190,19 @@ const (
 	PageTypeLeafIndex PageType = 0x0A
 )
 
+// BTree Page
+// The 100-byte database file header (found on page 1 only)
+// The 8 or 12 byte b-tree page header
+// The cell pointer array
+// Unallocated space
+// The cell content area
+// The reserved region.
+//      The size of the reserved region is determined by the
+//      one-byte unsigned integer found at an offset of 20 into
+//      the database file header. The size of the reserved region is usually zero.
+// Example First page header
+// 0D (00 00) (00 01) (0F 8A) (00)
+
 // PageHeader contains metadata about the page
 type PageHeader struct {
 	// Type is the PageType for the page
@@ -190,7 +214,9 @@ type PageHeader struct {
 	// NumCells is the number of cells stored in this page.
 	NumCells uint16
 
-	// CellsOffset is the byte offset at which the cells start. If the page contains no cells, this field contains the value PageSize. This value must be updated every time a cell is added.
+	// CellsOffset is the byte offset at which the cells start.
+	// If the page contains no cells, this field contains the value PageSize.
+	// This value must be updated every time a cell is added.
 	CellsOffset uint16
 
 	// Always zero for serialization
@@ -200,17 +226,24 @@ type PageHeader struct {
 	RightPage uint32
 }
 
-// TablePage represents a raw table page, the data is all
-type TablePage struct {
+// MemPage represents a raw table page, the data is all
+type MemPage struct {
 	PageHeader
-	Data []byte
+	PageNumber int
+	Data       []byte
 }
 
-func (h TablePage) Write(w io.Writer) error {
-	return binary.Write(w, binary.BigEndian, h)
+func (p *MemPage) Write(w io.Writer) error {
+	if err := binary.Write(w, binary.BigEndian, p.PageHeader); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.Data); err != nil {
+		return err
+	}
+	return nil
 }
 
-func ReadTablePage(reader io.Reader, pageSize uint16) (*TablePage, error) {
+func ReadPage(reader io.Reader, pageSize uint16) (*MemPage, error) {
 	page := make([]byte, pageSize)
 
 	bytesRead, err := reader.Read(page)
@@ -221,7 +254,7 @@ func ReadTablePage(reader io.Reader, pageSize uint16) (*TablePage, error) {
 		return nil, errors.New("unexpected page size")
 	}
 
-	tablePage := TablePage{
+	tablePage := MemPage{
 		PageHeader: PageHeader{
 			Type:        PageType(page[0]),
 			FreeOffset:  binary.BigEndian.Uint16(page[1:3]),
@@ -249,11 +282,11 @@ type LeafTableCell struct {
 type SQLType uint32
 
 const (
-	Key SQLType = iota
-	Byte
-	SmallInt
-	Integer
-	Text
+	Byte     = 1
+	SmallInt = 2
+	Integer  = 4
+	Key      = 24
+	Text     = 28
 )
 
 // Record is a set of fields
@@ -268,44 +301,50 @@ type Field struct {
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(fields []Field) *Record {
-	return &Record{
+func NewRecord(fields []Field) Record {
+	return Record{
 		Fields: fields,
 	}
 }
 
 // ToBytes serializes a database record for storage
-func (r *Record) ToBytes() []byte {
-	var buf bytes.Buffer
-
-	buf.WriteByte(0)
+func (r *Record) Write(bs io.Writer) error {
+	// Build the header [varint header size..., cols...]
+	var colBuf bytes.Buffer
 	for _, f := range r.Fields {
 		// If data is nil indicate
 		// the SQL type is NULL
 		if f.Data == nil {
-			buf.WriteByte(0)
+			colBuf.WriteByte(0)
 			continue
 		}
 
 		switch f.Type {
 		case Key:
-			buf.WriteByte(0)
+			colBuf.WriteByte(0)
 		case Byte:
-			buf.WriteByte(1)
+			colBuf.WriteByte(1)
 		case SmallInt:
-			buf.WriteByte(2)
+			colBuf.WriteByte(2)
 		case Integer:
-			buf.WriteByte(4)
+			colBuf.WriteByte(4)
 		case Text:
 			fieldSize := uint32(2*len(f.Data.(string)) + 13)
-			Put28BitInt(&buf, fieldSize)
+			encodedSize := make([]byte, 4)
+			bytesWritten := binary.PutVarint(encodedSize, int64(fieldSize))
+			colBuf.Write(encodedSize[:bytesWritten])
 		default:
 			panic("Unknown sql type")
 		}
 	}
 
-	// Capture the length of the header
-	headerLen := uint8(buf.Len())
+	// Size
+	// TODO: this assumes the header size can fit into 7 bit integer, which is usually okay.
+	// Add 1 because to include the first byte that includes size
+	bs.Write([]byte{byte(colBuf.Len() + 1)})
+
+	// Columns
+	bs.Write(colBuf.Bytes())
 
 	for _, f := range r.Fields {
 		// Nil is specified handled in header
@@ -316,48 +355,49 @@ func (r *Record) ToBytes() []byte {
 
 		switch f.Data.(type) {
 		case int8:
-			buf.WriteByte(byte(f.Data.(int8)))
+			bs.Write([]byte{byte(f.Data.(int8))})
 		case byte:
-			buf.WriteByte(f.Data.(byte))
+			bs.Write([]byte{f.Data.(byte)})
 		case int16:
-			binary.Write(&buf, binary.BigEndian, uint16(f.Data.(int16)))
+			binary.Write(bs, binary.BigEndian, uint16(f.Data.(int16)))
 		case int32:
-			binary.Write(&buf, binary.BigEndian, uint32(f.Data.(int32)))
+			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int32)))
 		case int64:
-			binary.Write(&buf, binary.BigEndian, uint32(f.Data.(int64)))
+			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int64)))
 		case int:
-			binary.Write(&buf, binary.BigEndian, uint32(f.Data.(int)))
+			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int)))
 		case string:
-			buf.Write([]byte(f.Data.(string)))
+			bs.Write([]byte(f.Data.(string)))
 		}
 	}
 
-	bs := buf.Bytes()
-	bs[0] = headerLen
-	return bs
+	return nil
 }
 
-// Put28BitInt writes a 28 bit integer into 4 bytes based on the encoding described here:
-// http://chi.cs.uchicago.edu/chidb/fileformat.html
-func Put28BitInt(w io.Writer, x uint32) {
-	if x > 0xFFFFFFF {
-		panic("only 28bits can be used")
+func WriteRecord(p *MemPage, r Record) error {
+	buf := bytes.Buffer{}
+	if err := r.Write(&buf); err != nil {
+		return err
 	}
 
-	buf := make([]byte, 4)
+	// TODO: this is wasteful
+	recordBytes := buf.Bytes()
+	newCellsOffset := p.CellsOffset - uint16(len(recordBytes))
 
-	for i := 3; i >= 0; i-- {
-		// each byte encodes 7 bits plus the MSB = 1 or 0 for LSB flag
-		var flag byte = 0x80
-		if i == 0 {
-			flag = 0x0
-		}
+	// Copy the record data starting at the new cells offset
+	copy(p.Data[newCellsOffset:], recordBytes)
 
-		// read the nth 7 bits
-		var sevenBitInt byte = byte(0x7F & (x >> (i * 7)))
-		buf[3-i] = flag | sevenBitInt
-		// Encode windows of 7 bits
-	}
+	// Write the cell pointer
+	binary.BigEndian.PutUint16(p.Data[p.FreeOffset:], newCellsOffset)
 
-	w.Write(buf)
+	// Take two bytes from freespace for the cell pointer
+	p.FreeOffset = p.FreeOffset + 2 // 2 bytes
+
+	// Move cells offset into freespace
+	p.CellsOffset = newCellsOffset
+
+	// Increase number of stored cells in this page
+	p.NumCells = p.NumCells + 1
+
+	return nil
 }
