@@ -13,6 +13,13 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 	// 	return nil, fmt.Errorf("table already exists")
 	// }
 
+	// Allocate a page for the new table
+	rootPage, err := engine.Pager.Allocate()
+	if err != nil {
+		return nil, err
+	}
+
+	// Update Page 1 with the new table record
 	tableRecord := storage.NewRecord([]storage.Field{
 		{
 			Type: storage.Text,
@@ -32,7 +39,7 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		{
 			Type: storage.Byte,
 			// rootpage: integer
-			Data: 1,
+			Data: rootPage.PageNumber,
 		},
 		{
 			Type: storage.Text,
@@ -40,8 +47,6 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 			Data: createStatement.RawText,
 		},
 	})
-
-	// Update Page 1
 	pageOne, err := engine.Pager.Read(1)
 	if err != nil {
 		return nil, err
@@ -49,7 +54,7 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 	if err := storage.WriteRecord(pageOne, tableRecord); err != nil {
 		return nil, err
 	}
-	if err := engine.Pager.Write(pageOne); err != nil {
+	if err := engine.Pager.Write(pageOne, rootPage); err != nil {
 		return nil, err
 	}
 

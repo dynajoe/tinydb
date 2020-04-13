@@ -19,6 +19,8 @@ type FileHeader struct {
 	PageCacheSize uint32
 	// 60-43	UserCookie	uint32	Available to the user for read-write access. Initialized to 0
 	UserCookie uint32
+	// Size in pages of the database
+	SizeInPages uint32
 }
 
 // NewFileHeader creates a new FileHeader
@@ -29,14 +31,14 @@ func NewFileHeader() FileHeader {
 		SchemaVersion:     0,
 		PageCacheSize:     20000,
 		UserCookie:        0,
+		SizeInPages:       1,
 	}
 }
 
-// Write writes FileHeader to the provided writer interface
-func (h FileHeader) Write(w io.Writer) error {
-	header := make([]byte, 100, 100)
-
-	copy(header, "SQLite format 3\000")
+// WriteTo writes FileHeader to the provided io.WriterTo
+func (h FileHeader) WriteTo(w io.Writer) (int64, error) {
+	data := make([]byte, 100)
+	copy(data, "SQLite format 3\000")
 
 	// PageSize: The two-byte value beginning at offset 16 determines the page size of the database.
 	// For SQLite versions 3.7.0.1 (2010-08-04) and earlier, this value is interpreted as a
@@ -47,37 +49,38 @@ func (h FileHeader) Write(w io.Writer) error {
 	// of as a magic number to represent the 65536 page size. Or one can view the two-byte field as a
 	// little endian number and say that it represents the page size divided by 256. These two interpretations of
 	// the page-size field are equivalent.
-	binary.BigEndian.PutUint16(header[16:], h.PageSize)
+	binary.BigEndian.PutUint16(data[16:], h.PageSize)
 
 	// 18	1	File format write version. 1 for legacy; 2 for WAL.
-	header[18] = 2
+	data[18] = 1
 	// 19	1	File format read version. 1 for legacy; 2 for WAL.
-	header[19] = 2
+	data[19] = 1
 	// 20	1	Bytes of unused "reserved" space at the end of each page. Usually 0.
-	header[20] = 0
+	data[20] = 0
 	// 21	1	Maximum embedded payload fraction. Must be 64.
-	header[21] = 64
+	data[21] = 64
 	// 22	1	Minimum embedded payload fraction. Must be 32.
-	header[22] = 32
+	data[22] = 32
 	// 23	1	Leaf payload fraction. Must be 32.
-	header[23] = 32
+	data[23] = 32
 
-	binary.BigEndian.PutUint32(header[24:], h.FileChangeCounter)
-	binary.BigEndian.PutUint32(header[32:], 0)
-	binary.BigEndian.PutUint32(header[36:], 0)
-	binary.BigEndian.PutUint32(header[40:], h.SchemaVersion)
-	binary.BigEndian.PutUint32(header[44:], 1)
-	binary.BigEndian.PutUint32(header[48:], h.PageCacheSize)
-	binary.BigEndian.PutUint32(header[52:], 0)
-	binary.BigEndian.PutUint32(header[56:], 1)
-	binary.BigEndian.PutUint32(header[60:], h.UserCookie)
-	binary.BigEndian.PutUint32(header[64:], 0)
+	binary.BigEndian.PutUint32(data[24:], h.FileChangeCounter)
+	binary.BigEndian.PutUint32(data[28:], h.SizeInPages)
+	binary.BigEndian.PutUint32(data[32:], 0)
+	binary.BigEndian.PutUint32(data[36:], 0)
+	binary.BigEndian.PutUint32(data[40:], h.SchemaVersion)
+	binary.BigEndian.PutUint32(data[44:], 1)
+	binary.BigEndian.PutUint32(data[48:], h.PageCacheSize)
+	binary.BigEndian.PutUint32(data[52:], 0)
+	binary.BigEndian.PutUint32(data[56:], 1)
+	binary.BigEndian.PutUint32(data[60:], h.UserCookie)
+	binary.BigEndian.PutUint32(data[64:], 0)
 
-	if _, err := w.Write(header); err != nil {
-		return err
+	if _, err := w.Write(data); err != nil {
+		return 0, err
 	}
 
-	return nil
+	return 100, nil
 }
 
 // ParseFileHeader deserializes a FileHeader
@@ -89,6 +92,7 @@ func ParseFileHeader(buf []byte) FileHeader {
 	return FileHeader{
 		PageSize:          binary.BigEndian.Uint16(buf[16:18]),
 		FileChangeCounter: binary.BigEndian.Uint32(buf[24:28]),
+		SizeInPages:       binary.BigEndian.Uint32(buf[28:32]),
 		SchemaVersion:     binary.BigEndian.Uint32(buf[40:44]),
 		PageCacheSize:     binary.BigEndian.Uint32(buf[48:52]),
 		UserCookie:        binary.BigEndian.Uint32(buf[60:64]),
@@ -160,7 +164,6 @@ type MemPage struct {
 	PageHeader
 	PageNumber int
 	Data       []byte
-	PageSize   uint16
 }
 
 func (p *MemPage) Write(w io.Writer) error {
@@ -221,7 +224,6 @@ func ReadPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
 	return &MemPage{
 		PageHeader: header,
 		PageNumber: page,
-		PageSize:   pageSize,
 		Data:       data,
 	}, nil
 }
@@ -265,7 +267,7 @@ func NewRecord(fields []Field) Record {
 	}
 }
 
-// Write writes a record to the specified writer
+// WriteTo writes a record to the specified writer
 func (r *Record) Write(bs io.Writer) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
@@ -345,7 +347,7 @@ func WriteRecord(p *MemPage, r Record) error {
 	// Copy the record data starting at the new cells offset
 	copy(p.Data[newCellsOffset:], recordBytes)
 
-	// Write the cell pointer
+	// WriteTo the cell pointer
 	binary.BigEndian.PutUint16(p.Data[p.FreeOffset:], newCellsOffset)
 
 	// Take two bytes from freespace for the cell pointer
