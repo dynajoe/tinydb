@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"os"
 )
 
 // FileHeader represents a database file header
@@ -22,67 +21,6 @@ type FileHeader struct {
 	UserCookie uint32
 }
 
-func Open(path string) (*Pager, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
-	if err != nil {
-		return nil, err
-	}
-
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, err
-	}
-
-	// The file was created.
-	// Initialize the database file.
-	if info.Size() == 0 {
-		return initDataFile(file)
-	}
-
-	return NewPager(file), nil
-}
-
-func initDataFile(file *os.File) (*Pager, error) {
-	header := NewFileHeader()
-	if err := header.Write(file); err != nil {
-		return nil, err
-	}
-
-	// Add a page to file to store the schema table
-	pager := NewPager(file)
-	if err := pager.Allocate(); err != nil {
-		return nil, err
-	}
-
-	// Initialize page one
-	pageOne := NewPage(1, header.PageSize)
-	if err := pager.Write(pageOne); err != nil {
-		return nil, err
-	}
-
-	// Page 1 of a database file is the root page of a table b-tree that
-	// holds a special table named "sqlite_master" (or "sqlite_temp_master" in
-	// the case of a TEMP database) which stores the complete database schema.
-	// The structure of the sqlite_master table is as if it had been
-	// created using the following SQL:
-	//
-	// CREATE TABLE sqlite_master(
-	//    type text,
-	//    name text,
-	//    tbl_name text,
-	//    rootpage integer,
-	//    sql text
-	// );
-
-	// fsync
-	if err := file.Sync(); err != nil {
-		return nil, err
-	}
-
-	return pager, nil
-}
-
 // NewFileHeader creates a new FileHeader
 func NewFileHeader() FileHeader {
 	return FileHeader{
@@ -94,11 +32,11 @@ func NewFileHeader() FileHeader {
 	}
 }
 
-// Write writes FileHeader to a file
+// Write writes FileHeader to the provided writer interface
 func (h FileHeader) Write(w io.Writer) error {
 	header := make([]byte, 100, 100)
 
-	copy(header, []byte("SQLite format 3\000"))
+	copy(header, "SQLite format 3\000")
 
 	// PageSize: The two-byte value beginning at offset 16 determines the page size of the database.
 	// For SQLite versions 3.7.0.1 (2010-08-04) and earlier, this value is interpreted as a
@@ -142,16 +80,10 @@ func (h FileHeader) Write(w io.Writer) error {
 	return nil
 }
 
-// ToBytes encodes PageHeader
-func (h PageHeader) Write(w io.Writer) error {
-	return binary.Write(w, binary.BigEndian, h)
-}
-
-// ReadHeader deserializes a FileHeader
-func ReadHeader(r io.Reader) FileHeader {
-	buf := make([]byte, 100)
-	if n, err := r.Read(buf); err != nil || n < 100 {
-		panic("unexpected header buffer size")
+// ParseFileHeader deserializes a FileHeader
+func ParseFileHeader(buf []byte) FileHeader {
+	if len(buf) != 100 {
+		panic("unexpected header length")
 	}
 
 	return FileHeader{
@@ -168,13 +100,14 @@ func NewPageHeader(t PageType, pageSize uint16) PageHeader {
 	return PageHeader{
 		Type:        t,
 		CellsOffset: pageSize,
-		NumCells:    0,
 		FreeOffset:  0,
+		NumCells:    0,
+		RightPage:   0,
 	}
 }
 
 // PageType type of page. See associated enumeration values.
-type PageType uint8
+type PageType byte
 
 const (
 	// PageTypeInternal internal table page
@@ -190,6 +123,7 @@ const (
 	PageTypeLeafIndex PageType = 0x0A
 )
 
+// PageHeader contains metadata about the page
 // BTree Page
 // The 100-byte database file header (found on page 1 only)
 // The 8 or 12 byte b-tree page header
@@ -202,8 +136,6 @@ const (
 //      the database file header. The size of the reserved region is usually zero.
 // Example First page header
 // 0D (00 00) (00 01) (0F 8A) (00)
-
-// PageHeader contains metadata about the page
 type PageHeader struct {
 	// Type is the PageType for the page
 	Type PageType
@@ -219,9 +151,6 @@ type PageHeader struct {
 	// This value must be updated every time a cell is added.
 	CellsOffset uint16
 
-	// Always zero for serialization
-	xxZero uint8
-
 	// RightPage internal nodes only
 	RightPage uint32
 }
@@ -231,22 +160,41 @@ type MemPage struct {
 	PageHeader
 	PageNumber int
 	Data       []byte
+	PageSize   uint16
 }
 
 func (p *MemPage) Write(w io.Writer) error {
-	if err := binary.Write(w, binary.BigEndian, p.PageHeader); err != nil {
-		return err
+	// TODO: handle non-leaf page types
+	if p.Type != PageTypeLeaf && p.Type != PageTypeLeafIndex {
+		panic("unhandled page type")
 	}
+
+	// Page one is a special case
+	// The page header starts after the file header
+	// It is expected that the page header
+	// is already written to the data at indexes 0-99
+	offset := 0
+	if p.PageNumber == 1 {
+		offset = 100
+	}
+
+	header := p.Data[offset : offset+8]
+	header[0] = byte(p.Type)
+	binary.BigEndian.PutUint16(header[1:3], p.FreeOffset)
+	binary.BigEndian.PutUint16(header[3:5], p.NumCells)
+	binary.BigEndian.PutUint16(header[5:7], p.CellsOffset)
+	header[7] = 0 // Always zero
+
 	if _, err := w.Write(p.Data); err != nil {
 		return err
 	}
 	return nil
 }
 
-func ReadPage(reader io.Reader, pageSize uint16) (*MemPage, error) {
-	page := make([]byte, pageSize)
+func ReadPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
+	data := make([]byte, pageSize)
 
-	bytesRead, err := reader.Read(page)
+	bytesRead, err := reader.Read(data)
 	if err != nil {
 		return nil, err
 	}
@@ -254,18 +202,28 @@ func ReadPage(reader io.Reader, pageSize uint16) (*MemPage, error) {
 		return nil, errors.New("unexpected page size")
 	}
 
-	tablePage := MemPage{
-		PageHeader: PageHeader{
-			Type:        PageType(page[0]),
-			FreeOffset:  binary.BigEndian.Uint16(page[1:3]),
-			NumCells:    binary.BigEndian.Uint16(page[3:5]),
-			CellsOffset: binary.BigEndian.Uint16(page[5:7]),
-			RightPage:   binary.BigEndian.Uint32(page[8:11]),
-		},
-		Data: page[12:],
+	// The header starts at offset 100 of page 1
+	headerBytes := data
+	if page == 1 {
+		headerBytes = data[100:]
 	}
 
-	return &tablePage, nil
+	header := PageHeader{
+		Type:        PageType(headerBytes[0]),
+		FreeOffset:  binary.BigEndian.Uint16(headerBytes[1:3]),
+		NumCells:    binary.BigEndian.Uint16(headerBytes[3:5]),
+		CellsOffset: binary.BigEndian.Uint16(headerBytes[5:7]),
+	}
+	if header.Type == PageTypeInternal || header.Type == PageTypeInternalIndex {
+		header.RightPage = binary.BigEndian.Uint32(headerBytes[8:11])
+	}
+
+	return &MemPage{
+		PageHeader: header,
+		PageNumber: page,
+		PageSize:   pageSize,
+		Data:       data,
+	}, nil
 }
 
 type InternalTableCell struct {
@@ -307,7 +265,7 @@ func NewRecord(fields []Field) Record {
 	}
 }
 
-// ToBytes serializes a database record for storage
+// Write writes a record to the specified writer
 func (r *Record) Write(bs io.Writer) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
@@ -400,4 +358,8 @@ func WriteRecord(p *MemPage, r Record) error {
 	p.NumCells = p.NumCells + 1
 
 	return nil
+}
+
+func PageOffset(page int, pageSize uint16) int64 {
+	return int64(page-1) * int64(pageSize)
 }
