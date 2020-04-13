@@ -14,8 +14,8 @@ func TestFileHeader_Write(t *testing.T) {
 	buf := bytes.Buffer{}
 	h := NewFileHeader()
 
-	// Write the contents to Writer
-	err := h.Write(&buf)
+	// WriteTo the contents to Writer
+	err := h.WriteTo(&buf)
 	assert.NoError(err)
 
 	// Assert
@@ -29,7 +29,7 @@ func TestFileHeader_ReadHeader(t *testing.T) {
 	assert := require.New(t)
 	buf := bytes.Buffer{}
 	h := NewFileHeader()
-	err := h.Write(&buf)
+	err := h.WriteTo(&buf)
 	assert.NoError(err)
 
 	bs := buf.Bytes()

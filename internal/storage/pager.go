@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"sync"
@@ -31,18 +32,24 @@ func Open(path string) (*Pager, error) {
 	// Set up the file header for the new database
 	if info.Size() == 0 {
 		header := NewFileHeader()
-		if err := header.Write(file); err != nil {
-			return nil, err
-		}
-		if err := file.Sync(); err != nil {
-			return nil, err
-		}
-		return &Pager{
+		pager := &Pager{
 			fileHeader: header,
 			file:       file,
+			pageCount:  0,
 			pageCache:  make(map[int]*MemPage),
 			mu:         &sync.RWMutex{},
-		}, nil
+		}
+
+		// Allocate and then persist the first page
+		pageOne, err := pager.Allocate()
+		if err != nil {
+			return nil, err
+		}
+		if err := pager.Write(pageOne); err != nil {
+			return nil, err
+		}
+
+		return pager, nil
 	}
 
 	// Opening an existing database
@@ -55,6 +62,7 @@ func Open(path string) (*Pager, error) {
 	return &Pager{
 		fileHeader: header,
 		file:       file,
+		pageCount:  int(info.Size()) / int(header.PageSize),
 		pageCache:  make(map[int]*MemPage),
 		mu:         &sync.RWMutex{},
 	}, nil
@@ -78,7 +86,6 @@ func Open(path string) (*Pager, error) {
 func NewPage(page int, pageSize uint16) *MemPage {
 	header := NewPageHeader(PageTypeLeaf, pageSize)
 	if page == 1 {
-		header.CellsOffset = 100
 		header.FreeOffset = 100
 	}
 
@@ -131,22 +138,32 @@ func (p *Pager) Read(page int) (*MemPage, error) {
 	return tablePage, nil
 }
 
-// Write writes a TablePage to disk at the specified page index
-func (p *Pager) Write(page *MemPage) error {
+// WriteTo writes all pages to disk
+func (p *Pager) Write(pages ...*MemPage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if page.PageNumber < 1 || page.PageNumber > p.pageCount {
-		return fmt.Errorf("page [%d] out of bounds", page)
+	for _, page := range pages {
+		if page.PageNumber < 1 || page.PageNumber > p.pageCount {
+			return fmt.Errorf("page [%d] out of bounds", page)
+		}
+
+		// Overwrite the entire page
+		offset := PageOffset(page.PageNumber, p.fileHeader.PageSize)
+		if _, err := p.file.Seek(offset, 0); err != nil {
+			return err
+		}
+
+		// WriteTo the page to disk and update cache
+		if err := page.Write(p.file); err != nil {
+			return err
+		}
+
+		p.pageCache[page.PageNumber] = page
 	}
 
-	// Overwrite the entire page
-	if _, err := p.file.Seek(PageOffset(page.PageNumber, page.PageSize), 0); err != nil {
-		return err
-	}
-
-	// Write the page to disk and update cache
-	if err := page.Write(p.file); err != nil {
+	// Update file header
+	if err := p.updateFileHeader(); err != nil {
 		return err
 	}
 
@@ -155,8 +172,27 @@ func (p *Pager) Write(page *MemPage) error {
 		return err
 	}
 
-	p.pageCache[page.PageNumber] = page
+	return nil
+}
 
+func (p *Pager) updateFileHeader() error {
+	p.fileHeader.FileChangeCounter = p.fileHeader.FileChangeCounter + 1
+	p.fileHeader.SizeInPages = uint32(p.pageCount)
+
+	fileHeaderBuf := bytes.Buffer{}
+	if _, err := p.fileHeader.WriteTo(&fileHeaderBuf); err != nil {
+		return err
+	}
+
+	// Grab the page from the cache for updating
+	pageOne := p.pageCache[1]
+
+	// Write the file header to the page
+	headerBytes := fileHeaderBuf.Bytes()
+	copy(pageOne.Data, headerBytes)
+	if _, err := p.file.WriteAt(headerBytes, 0); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -165,5 +201,16 @@ func (p *Pager) Allocate() (*MemPage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pageCount = p.pageCount + 1
-	return NewPage(p.pageCount, p.fileHeader.PageSize), nil
+
+	page := NewPage(p.pageCount, p.fileHeader.PageSize)
+	if page.PageNumber == 1 {
+		fileHeaderBuf := bytes.Buffer{}
+		if _, err := p.fileHeader.WriteTo(&fileHeaderBuf); err != nil {
+			return nil, err
+		}
+		// Write the file header to the page
+		copy(page.Data, fileHeaderBuf.Bytes())
+	}
+
+	return page, nil
 }
