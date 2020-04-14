@@ -1,7 +1,7 @@
 package command
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/joeandaverde/tinydb/engine"
@@ -24,8 +24,8 @@ func (i *StartCommand) Synopsis() string {
 }
 
 func (i *StartCommand) Run(args []string) int {
-	tempDir, _ := ioutil.TempDir("", "tinydb")
-	db := engine.Start(tempDir)
+	os.Remove("/Users/joe/Desktop/sqlite/tinydb.db")
+	db := engine.Start("/Users/joe/Desktop/sqlite/")
 
 	_, err := db.Execute(strings.TrimSpace(`
 	CREATE TABLE person (
