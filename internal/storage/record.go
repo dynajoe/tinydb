@@ -109,7 +109,10 @@ func WriteRecord(p *MemPage, r Record) error {
 
 	recordBytes := buf.Bytes()
 	cellOffset := p.CellsOffset - uint16(len(recordBytes))
-	cellOffsetPointer := (p.NumCells - 1) * 2
+	cellOffsetPointer := p.NumCells * 2
+	if p.PageNumber == 1 {
+		cellOffsetPointer = cellOffsetPointer + 108 // header size + offset
+	}
 
 	// Write the offset of the data cell
 	binary.BigEndian.PutUint16(p.Data[cellOffsetPointer:], cellOffset)

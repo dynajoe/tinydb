@@ -24,7 +24,7 @@ func (i *StartCommand) Synopsis() string {
 }
 
 func (i *StartCommand) Run(args []string) int {
-	os.Remove("/Users/joe/Desktop/sqlite/tinydb.db")
+	os.Remove("/Users/joe/Desktop/sqlite/tiny.db")
 	db := engine.Start("/Users/joe/Desktop/sqlite/")
 
 	_, err := db.Execute(strings.TrimSpace(`

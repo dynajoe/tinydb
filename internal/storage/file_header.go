@@ -13,10 +13,6 @@ type FileHeader struct {
 	FileChangeCounter uint32
 	// 40-43	SchemaVersion	uint32	Initialized to 0. Each time the database schema is modified, this counter is increased.
 	SchemaVersion uint32
-	// 48-51	PageCacheSize	uint32	Default pager cache size in bytes. Initialized to 20000
-	PageCacheSize uint32
-	// 60-43	UserCookie	uint32	Available to the user for read-write access. Initialized to 0
-	UserCookie uint32
 	// Size in pages of the database
 	SizeInPages uint32
 }
@@ -27,8 +23,6 @@ func NewFileHeader() FileHeader {
 		PageSize:          4096,
 		FileChangeCounter: 0,
 		SchemaVersion:     0,
-		PageCacheSize:     20000,
-		UserCookie:        0,
 		SizeInPages:       1,
 	}
 }
@@ -67,13 +61,13 @@ func (h FileHeader) WriteTo(w io.Writer) (int64, error) {
 	binary.BigEndian.PutUint32(data[32:], 0)
 	binary.BigEndian.PutUint32(data[36:], 0)
 	binary.BigEndian.PutUint32(data[40:], h.SchemaVersion)
-	binary.BigEndian.PutUint32(data[44:], 1)
-	binary.BigEndian.PutUint32(data[48:], h.PageCacheSize)
+	binary.BigEndian.PutUint32(data[44:], 4) // Schema format
+	binary.BigEndian.PutUint32(data[48:], 0)
 	binary.BigEndian.PutUint32(data[52:], 0)
 	binary.BigEndian.PutUint32(data[56:], 1)
-	binary.BigEndian.PutUint32(data[60:], h.UserCookie)
 	binary.BigEndian.PutUint32(data[64:], 0)
-
+	binary.BigEndian.PutUint32(data[92:], 3)
+	binary.BigEndian.PutUint32(data[96:], 3027002)
 	if _, err := w.Write(data); err != nil {
 		return 0, err
 	}
@@ -92,7 +86,5 @@ func ParseFileHeader(buf []byte) FileHeader {
 		FileChangeCounter: binary.BigEndian.Uint32(buf[24:28]),
 		SizeInPages:       binary.BigEndian.Uint32(buf[28:32]),
 		SchemaVersion:     binary.BigEndian.Uint32(buf[40:44]),
-		PageCacheSize:     binary.BigEndian.Uint32(buf[48:52]),
-		UserCookie:        binary.BigEndian.Uint32(buf[60:64]),
 	}
 }
