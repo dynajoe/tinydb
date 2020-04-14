@@ -43,6 +43,11 @@ func Open(path string) (*Pager, error) {
 			mu:         &sync.RWMutex{},
 		}
 
+		// Persist the header
+		if _, err := header.WriteTo(pager.file); err != nil {
+			return nil, err
+		}
+
 		// Allocate and then persist the first page
 		pageOne, err := pager.Allocate()
 		if err != nil {
@@ -88,9 +93,6 @@ func Open(path string) (*Pager, error) {
 // );
 func NewPage(page int, pageSize uint16) *MemPage {
 	header := NewPageHeader(PageTypeLeaf, pageSize)
-	if page == 1 {
-		pageSize = pageSize - 100
-	}
 	return &MemPage{
 		PageHeader: header,
 		PageNumber: page,
@@ -186,13 +188,8 @@ func (p *Pager) updateFileHeader() error {
 		return err
 	}
 
-	// Grab the page from the cache for updating
-	pageOne := p.pageCache[1]
-
-	// Write the file header to the page
-	headerBytes := fileHeaderBuf.Bytes()
-	copy(pageOne.Data, headerBytes)
-	if _, err := p.file.WriteAt(headerBytes, 0); err != nil {
+	// Write the file header to disk
+	if _, err := p.file.WriteAt(fileHeaderBuf.Bytes(), 0); err != nil {
 		return err
 	}
 	return nil
@@ -203,17 +200,7 @@ func (p *Pager) Allocate() (*MemPage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pageCount = p.pageCount + 1
-
 	page := NewPage(p.pageCount, p.fileHeader.PageSize)
-	if page.PageNumber == 1 {
-		fileHeaderBuf := bytes.Buffer{}
-		if _, err := p.fileHeader.WriteTo(&fileHeaderBuf); err != nil {
-			return nil, err
-		}
-		// Write the file header to the page
-		copy(page.Data, fileHeaderBuf.Bytes())
-	}
-
 	return page, nil
 }
 

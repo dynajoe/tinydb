@@ -34,7 +34,7 @@ func (p *MemPage) Write(w io.Writer) error {
 	binary.BigEndian.PutUint16(header[5:7], p.CellsOffset)
 	header[7] = 0 // Always zero
 
-	if _, err := w.Write(p.Data); err != nil {
+	if _, err := w.Write(p.Data[offset:]); err != nil {
 		return err
 	}
 	return nil
