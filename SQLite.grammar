@@ -1,42 +1,55 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ufwb version="1.17">
-    <grammar name="SQLite" start="id:514" author="Joe Andaverde" fileextension="db">
+    <grammar name="SQLite" start="id:45" author="Joe Andaverde" fileextension="db">
         <description>Grammar for DB files</description>
-        <structure name="FileHeader" id="515" length="100" encoding="ISO_8859-1:1987" endian="big" signed="no">
-            <string name="Magic" id="516" type="fixed-length" length="16"/>
-            <number name="PageSize" id="517" type="integer" length="2"/>
-            <number name="FormatWrite" id="543" type="integer" length="1"/>
-            <number name="FormatRead" id="544" type="integer" length="1"/>
-            <number name="Reserved" id="545" type="integer" length="1"/>
-            <number name="PayloadFraction" id="546" type="integer" length="1"/>
-            <number name="PayloadFractionMin" id="547" type="integer" length="1"/>
-            <number name="LeafPayloadFraction" id="548" type="integer" length="1"/>
-            <number name="FileChangeCounter" id="549" type="integer" length="4"/>
-            <number name="SizeInPages" id="550" type="integer" length="4"/>
+        <structure name="FileHeader" id="46" length="100" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <string name="Magic" id="47" type="fixed-length" length="16"/>
+            <number name="PageSize" id="48" type="integer" length="2"/>
+            <number name="FormatWrite" id="49" type="integer" length="1"/>
+            <number name="FormatRead" id="50" type="integer" length="1"/>
+            <number name="Reserved" id="51" type="integer" length="1"/>
+            <number name="PayloadFraction" id="52" type="integer" length="1"/>
+            <number name="PayloadFractionMin" id="53" type="integer" length="1"/>
+            <number name="LeafPayloadFraction" id="54" type="integer" length="1"/>
+            <number name="FileChangeCounter" id="55" type="integer" length="4"/>
+            <number name="SizeInPages" id="56" type="integer" length="4"/>
+            <number name="firstfreelisttrunk" id="57" type="integer" length="4"/>
+            <number name="freelistpgs" id="58" type="integer" length="4"/>
+            <number name="scemacookie" id="59" type="integer" length="4"/>
+            <number name="schemaformat" id="60" type="integer" length="4"/>
+            <number name="cachesize" id="61" type="integer" length="4"/>
+            <number name="largestbtreepg" id="62" type="integer" length="4"/>
+            <number name="encoding" id="63" type="integer" length="4"/>
+            <number name="userversion" id="64" type="integer" length="4"/>
+            <number name="icrvacuum" id="65" type="integer" length="4"/>
+            <number name="appid" id="66" type="integer" length="4"/>
+            <binary name="expansion" id="91" length="20"/>
+            <number name="versionvafor" id="68" type="integer" length="4"/>
+            <number name="SQLITE_VERSION_NUMBER" id="69" type="integer" length="4"/>
         </structure>
-        <structure name="LeafCell" id="531" encoding="ISO_8859-1:1987" endian="big" signed="no">
-            <number name="DataSize" id="532" fillcolor="FFAD51" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2" display="hex"/>
-            <structure name="Record" id="538" length="0">
-                <number name="RecordHeaderSize" id="540" fillcolor="9C6EFF" type="integer" length="1"/>
-                <binary name="ColumnTypes" id="542" fillcolor="34EDFF" length="RecordHeaderSize-1"/>
+        <structure name="LeafCell" id="71" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <number name="DataSize" id="72" fillcolor="FFAD51" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2" display="hex"/>
+            <structure name="Record" id="73" length="0">
+                <number name="RecordHeaderSize" id="74" fillcolor="9C6EFF" type="integer" length="1"/>
+                <binary name="ColumnTypes" id="75" fillcolor="34EDFF" length="RecordHeaderSize-1"/>
             </structure>
         </structure>
-        <structure name="SQLite Page 1" id="514" length="4096" encoding="ISO_8859-1:1987" endian="big" signed="no">
-            <structref name="FileHeader" id="551" structure="id:515"/>
-            <structure name="PageHeader" id="519" length="8">
-                <binary name="PageType" id="520" length="1">
+        <structure name="SQLite Page 1" id="45" length="4096" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <structref name="FileHeader" id="78" structure="id:46"/>
+            <structure name="PageHeader" id="79" length="8" fillcolor="FF6425">
+                <binary name="PageType" id="80" fillcolor="FE64FF" length="1">
                     <fixedvalues>
                         <fixedvalue name="Leaf" value="0D"/>
                     </fixedvalues>
                 </binary>
-                <number name="FreeBlock" id="521" type="integer" length="2"/>
-                <number name="CellCount" id="522" type="integer" length="2"/>
-                <number name="CellsOffset" id="523" type="integer" length="2"/>
-                <number name="Unused" id="524" type="integer" length="1"/>
+                <number name="FreeBlock" id="81" type="integer" length="2"/>
+                <number name="CellCount" id="82" type="integer" length="2"/>
+                <number name="CellsOffset" id="83" type="integer" length="2"/>
+                <number name="Unused" id="84" type="integer" length="1"/>
             </structure>
-            <structure name="Cells" id="526">
-                <number name="Cells" id="527" strokecolor="F56C85" fillcolor="00FF2C" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2"/>
-                <offset name="LeafCell" id="535" fillcolor="FF2D6C" length="1" references="id:531" relative-to="id:514" additional="CellsOffset" follownullreference="yes"/>
+            <structure name="Cells" id="86">
+                <number name="Cells" id="87" strokecolor="F56C85" fillcolor="00FF2C" repeatmin="CellCount" repeatmax="CellCount" type="integer" length="2"/>
+                <offset name="LeafCell" id="88" fillcolor="FF2D6C" length="1" references="id:71" relative-to="id:45" additional="CellsOffset" follownullreference="yes"/>
             </structure>
         </structure>
     </grammar>

@@ -2,7 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 )
@@ -86,9 +89,8 @@ func Open(path string) (*Pager, error) {
 func NewPage(page int, pageSize uint16) *MemPage {
 	header := NewPageHeader(PageTypeLeaf, pageSize)
 	if page == 1 {
-		header.FreeOffset = 100
+		pageSize = pageSize - 100
 	}
-
 	return &MemPage{
 		PageHeader: header,
 		PageNumber: page,
@@ -124,12 +126,12 @@ func (p *Pager) Read(page int) (*MemPage, error) {
 		return tablePage, nil
 	}
 
-	if _, err := p.file.Seek(PageOffset(page, p.fileHeader.PageSize), 0); err != nil {
+	if _, err := p.file.Seek(p.pageOffset(page), 0); err != nil {
 		return nil, err
 	}
 
 	// Read the TablePage and cache the result
-	tablePage, err := ReadPage(page, p.fileHeader.PageSize, p.file)
+	tablePage, err := readPage(page, p.fileHeader.PageSize, p.file)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +151,7 @@ func (p *Pager) Write(pages ...*MemPage) error {
 		}
 
 		// Overwrite the entire page
-		offset := PageOffset(page.PageNumber, p.fileHeader.PageSize)
+		offset := p.pageOffset(page.PageNumber)
 		if _, err := p.file.Seek(offset, 0); err != nil {
 			return err
 		}
@@ -213,4 +215,44 @@ func (p *Pager) Allocate() (*MemPage, error) {
 	}
 
 	return page, nil
+}
+
+func readPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
+	if page == 1 {
+		pageSize = pageSize - 100
+	}
+	data := make([]byte, pageSize)
+
+	bytesRead, err := reader.Read(data)
+	if err != nil {
+		return nil, err
+	}
+	if bytesRead != int(pageSize) {
+		return nil, errors.New("unexpected page size")
+	}
+
+	header := PageHeader{
+		Type:                PageType(data[0]),
+		FreeBlock:           binary.BigEndian.Uint16(data[1:3]),
+		NumCells:            binary.BigEndian.Uint16(data[3:5]),
+		CellsOffset:         binary.BigEndian.Uint16(data[5:7]),
+		FragmentedFreeBytes: data[7],
+		RightPage:           0,
+	}
+	if header.Type == PageTypeInternal || header.Type == PageTypeInternalIndex {
+		header.RightPage = binary.BigEndian.Uint32(data[8:11])
+	}
+
+	return &MemPage{
+		PageHeader: header,
+		PageNumber: page,
+		Data:       data,
+	}, nil
+}
+
+func (p *Pager) pageOffset(page int) int64 {
+	if page == 1 {
+		return 100
+	}
+	return int64(page-1) * int64(p.fileHeader.PageSize)
 }
