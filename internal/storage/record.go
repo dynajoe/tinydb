@@ -25,11 +25,11 @@ type Field struct {
 // Record is a set of fields
 type Record struct {
 	Fields []Field
-	Key    byte
+	Key    int
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(key byte, fields []Field) Record {
+func NewRecord(key int, fields []Field) Record {
 	return Record{
 		Key:    key,
 		Fields: fields,
@@ -40,6 +40,7 @@ func NewRecord(key byte, fields []Field) Record {
 func (r *Record) Write(bs io.Writer) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
+	varintBuf := make([]byte, 9)
 	for _, f := range r.Fields {
 		// If data is nil indicate
 		// the SQL type is NULL
@@ -59,9 +60,8 @@ func (r *Record) Write(bs io.Writer) error {
 			colBuf.WriteByte(4)
 		case Text:
 			fieldSize := uint64(2*len(f.Data.(string)) + 13)
-			encodedSize := make([]byte, 9)
-			bytesWritten := binary.PutUvarint(encodedSize, fieldSize)
-			colBuf.Write(encodedSize[:bytesWritten])
+			n := binary.PutUvarint(varintBuf, fieldSize)
+			colBuf.Write(varintBuf[:n])
 		default:
 			panic("Unknown sql type")
 		}
@@ -101,9 +101,12 @@ func (r *Record) Write(bs io.Writer) error {
 		}
 	}
 
-	recordLength := len(recordBuffer.Bytes())
-	bs.Write([]byte{byte(recordLength), r.Key})
+	n := binary.PutUvarint(varintBuf, uint64(len(recordBuffer.Bytes())))
+	bs.Write(varintBuf[:n])
+	n = binary.PutUvarint(varintBuf, uint64(r.Key))
+	bs.Write(varintBuf[:n])
 	bs.Write(recordBuffer.Bytes())
+
 	return nil
 }
 
@@ -135,7 +138,7 @@ func WriteRecord(p *MemPage, r Record) error {
 	return nil
 }
 
-func NewMasterTableRecord(key byte, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
+func NewMasterTableRecord(key int, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
 	return NewRecord(key, []Field{
 		{
 			Type: Text,
