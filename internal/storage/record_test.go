@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,12 +35,14 @@ func TestRecord_Write(t *testing.T) {
 	assert.NoError(err)
 
 	expectedPrefix := []byte{
+		// Cell Header
+		0x12, 0x1,
 		// Header Size (includes first byte)
 		5,
 		// Primary Key (Always NULL)
 		0,
 		// Text
-		0x3E,
+		0x1F,
 		// NULL
 		0,
 		// Integer
@@ -52,36 +55,13 @@ func TestRecord_Write(t *testing.T) {
 	assert.Equal(expectedPrefix, buf.Bytes()[:len(expectedPrefix)])
 }
 
-func TestWriteRecord(t *testing.T) {
-	assert := require.New(t)
-
-	page := NewPage(2, 256)
-	record := NewRecord(1, []Field{
-		{
-			Type: Integer,
-			Data: 1337,
-		},
-	})
-
-	err := WriteRecord(page, record)
-	assert.NoError(err)
-	// 250 = (256 bytes - 6 bytes)
-	assert.Equal([]byte{0x00, 0xFA}, page.Data[0:2])
-	// varint - length of header
-	assert.Equal(byte(2), page.Data[250])
-	// Integer type (1 byte)
-	assert.Equal(byte(Integer), page.Data[251])
-	// Data, 4 byte big endian integer
-	assert.Equal([]byte{0, 0, 0x05, 0x39}, page.Data[252:])
-}
-
 func TestWriteRecord_WithText(t *testing.T) {
 	assert := require.New(t)
 
 	expectedText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et"
 	pageSize := 256
 	page := NewPage(2, uint16(pageSize))
-	record := NewRecord(1, []Field{
+	record := NewRecord(5, []Field{
 		{
 			Type: Integer,
 			Data: 1337,
@@ -95,15 +75,18 @@ func TestWriteRecord_WithText(t *testing.T) {
 	err := WriteRecord(page, record)
 	assert.NoError(err)
 
-	// The header should encode the length of the text as a varint
-	// Lorem = (len(lorem) * 2 + 13) = 217 = 2 (7 bit bytes)
-	// Size = 1 + 1 (int) + 2 (text) = 4
-	expectedHeader := []byte{0x6e, 0x1, 0x4, 0x4, 0xB2, 0x3}
-	actualHeader := page.Data[page.CellsOffset : int(page.CellsOffset)+len(expectedHeader)]
-	assert.Equal(expectedHeader, actualHeader)
+	expectedCellBytes := []byte{
+		0x6e,     // Varint cell length,
+		0x5,      // Varint _rowid_
+		0x4,      // RecordHeader[record size]
+		0x4,      // RecordHeader[int type]
+		0x0, 0x0, // RecordHeader[text type] -- value written below
+		0x0, 0x0, 0x05, 0x39, // RecordData[1337]
+	}
+	binary.PutUvarint(expectedCellBytes[4:6], uint64(len(expectedText)*2+13)) // RecordHeader[text type]
+	expectedCellBytes = append(expectedCellBytes, []byte(expectedText)...)    // RecordData[text]
 
-	// The text should be at the end of data
-	assert.Equal([]byte(expectedText), page.Data[pageSize-len(expectedText):])
+	assert.Equal(expectedCellBytes, page.Data[page.CellsOffset:])
 }
 
 func TestNewMasterTableRecord(t *testing.T) {
