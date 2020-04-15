@@ -13,21 +13,22 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 	// 	return nil, fmt.Errorf("table already exists")
 	// }
 
+	pageOne, err := engine.Pager.Read(1)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: the recordKey should be an int from an auto index perhaps?
+	recordKey := int(pageOne.NumCells) + 1
+
 	// Allocate a page for the new table
 	rootPage, err := engine.Pager.Allocate()
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO: the recordKey should be an int from an auto index perhaps?
-	recordKey := byte(rootPage.NumCells) + 1
 	// Update Page 1 with the new table record
 	tableRecord := storage.NewMasterTableRecord(recordKey, "table", createStatement.TableName,
 		createStatement.TableName, rootPage.PageNumber, createStatement.RawText)
-	pageOne, err := engine.Pager.Read(1)
-	if err != nil {
-		return nil, err
-	}
+
 	if err := storage.WriteRecord(pageOne, tableRecord); err != nil {
 		return nil, err
 	}
