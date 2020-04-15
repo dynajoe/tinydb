@@ -11,19 +11,19 @@ func TestRecord_Write(t *testing.T) {
 	assert := require.New(t)
 	stringContent := "Databases"
 	h := NewRecord(1, []Field{
-		Field{
+		{
 			Type: Key,
 			Data: 23500,
 		},
-		Field{
+		{
 			Type: Text,
 			Data: stringContent,
 		},
-		Field{
+		{
 			Type: Integer,
 			Data: nil,
 		},
-		Field{
+		{
 			Type: Integer,
 			Data: int(42),
 		},
@@ -98,7 +98,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 	// The header should encode the length of the text as a varint
 	// Lorem = (len(lorem) * 2 + 13) = 217 = 2 (7 bit bytes)
 	// Size = 1 + 1 (int) + 2 (text) = 4
-	expectedHeader := []byte{0x4, 0x4, 0xB2, 0x3}
+	expectedHeader := []byte{0x6e, 0x1, 0x4, 0x4, 0xB2, 0x3}
 	actualHeader := page.Data[page.CellsOffset : int(page.CellsOffset)+len(expectedHeader)]
 	assert.Equal(expectedHeader, actualHeader)
 
