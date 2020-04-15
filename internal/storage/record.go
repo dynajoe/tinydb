@@ -25,11 +25,13 @@ type Field struct {
 // Record is a set of fields
 type Record struct {
 	Fields []Field
+	Key    byte
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(fields []Field) Record {
+func NewRecord(key byte, fields []Field) Record {
 	return Record{
+		Key:    key,
 		Fields: fields,
 	}
 }
@@ -56,22 +58,23 @@ func (r *Record) Write(bs io.Writer) error {
 		case Integer:
 			colBuf.WriteByte(4)
 		case Text:
-			fieldSize := uint32(2*len(f.Data.(string)) + 13)
-			encodedSize := make([]byte, 4)
-			bytesWritten := binary.PutVarint(encodedSize, int64(fieldSize))
+			fieldSize := uint64(2*len(f.Data.(string)) + 13)
+			encodedSize := make([]byte, 9)
+			bytesWritten := binary.PutUvarint(encodedSize, fieldSize)
 			colBuf.Write(encodedSize[:bytesWritten])
 		default:
 			panic("Unknown sql type")
 		}
 	}
 
+	recordBuffer := bytes.Buffer{}
 	// Size
 	// TODO: this assumes the header size can fit into 7 bit integer, which is usually okay.
 	// Add 1 because to include the first byte that includes size
-	bs.Write([]byte{byte(colBuf.Len() + 1)})
+	recordBuffer.Write([]byte{byte(colBuf.Len() + 1)})
 
 	// Columns
-	bs.Write(colBuf.Bytes())
+	recordBuffer.Write(colBuf.Bytes())
 
 	for _, f := range r.Fields {
 		// Nil is specified handled in header
@@ -82,22 +85,25 @@ func (r *Record) Write(bs io.Writer) error {
 
 		switch f.Data.(type) {
 		case int8:
-			bs.Write([]byte{byte(f.Data.(int8))})
+			recordBuffer.Write([]byte{byte(f.Data.(int8))})
 		case byte:
-			bs.Write([]byte{f.Data.(byte)})
+			recordBuffer.Write([]byte{f.Data.(byte)})
 		case int16:
-			binary.Write(bs, binary.BigEndian, uint16(f.Data.(int16)))
+			binary.Write(&recordBuffer, binary.BigEndian, uint16(f.Data.(int16)))
 		case int32:
-			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int32)))
+			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int32)))
 		case int64:
-			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int64)))
+			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int64)))
 		case int:
-			binary.Write(bs, binary.BigEndian, uint32(f.Data.(int)))
+			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int)))
 		case string:
-			bs.Write([]byte(f.Data.(string)))
+			recordBuffer.Write([]byte(f.Data.(string)))
 		}
 	}
 
+	recordLength := len(recordBuffer.Bytes())
+	bs.Write([]byte{byte(recordLength), r.Key})
+	bs.Write(recordBuffer.Bytes())
 	return nil
 }
 
@@ -127,4 +133,35 @@ func WriteRecord(p *MemPage, r Record) error {
 	p.NumCells = p.NumCells + 1
 
 	return nil
+}
+
+func NewMasterTableRecord(key byte, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
+	return NewRecord(key, []Field{
+		{
+			Type: Text,
+			// type: text
+			Data: typeName,
+		},
+		{
+			Type: Text,
+			// name: text
+			Data: name,
+		},
+		{
+			Type: Text,
+			// tablename: text
+			Data: tableName,
+		},
+		{
+			Type: Byte,
+			// TODO: this seems to be optimized from int to a byte by sqlite for early pages
+			// rootpage: integer
+			Data: byte(rootPage),
+		},
+		{
+			Type: Text,
+			// sql: text
+			Data: sqlText,
+		},
+	})
 }
