@@ -27,12 +27,11 @@ func (i *StartCommand) Run(args []string) int {
 	os.Remove("/Users/joe/Desktop/sqlite/tiny.db")
 	db := engine.Start("/Users/joe/Desktop/sqlite/")
 
-	_, err := db.Execute(strings.TrimSpace(`
-	CREATE TABLE person (
-		name text,
-		company_id int
-	)
-	`))
+	_, err := db.Execute(strings.TrimSpace(`CREATE TABLE person(name text)`))
+	if err != nil {
+		return 1
+	}
+	_, err = db.Execute(strings.TrimSpace(`CREATE TABLE company(name text)`))
 	if err != nil {
 		return 1
 	}

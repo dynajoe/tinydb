@@ -19,34 +19,11 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		return nil, err
 	}
 
+	// TODO: the recordKey should be an int from an auto index perhaps?
+	recordKey := byte(rootPage.NumCells) + 1
 	// Update Page 1 with the new table record
-	tableRecord := storage.NewRecord([]storage.Field{
-		{
-			Type: storage.Text,
-			// type: text
-			Data: "table",
-		},
-		{
-			Type: storage.Text,
-			// name: text
-			Data: createStatement.TableName,
-		},
-		{
-			Type: storage.Text,
-			// tablename: text
-			Data: createStatement.TableName,
-		},
-		{
-			Type: storage.Byte,
-			// rootpage: integer
-			Data: rootPage.PageNumber,
-		},
-		{
-			Type: storage.Text,
-			// sql: text
-			Data: createStatement.RawText,
-		},
-	})
+	tableRecord := storage.NewMasterTableRecord(recordKey, "table", createStatement.TableName,
+		createStatement.TableName, rootPage.PageNumber, createStatement.RawText)
 	pageOne, err := engine.Pager.Read(1)
 	if err != nil {
 		return nil, err
