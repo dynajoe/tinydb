@@ -1,57 +1,21 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/csv"
-	"errors"
 	"fmt"
+
 	"github.com/joeandaverde/tinydb/ast"
-	"os"
-	"path/filepath"
 )
 
 func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
 	engine.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
 
-	metadata, ok := engine.Tables[insertStatement.Table]
-
-	if !ok {
+	metadata, err := engine.GetTableDefinition(insertStatement.Table)
+	if err != nil {
 		return 0, nil, fmt.Errorf("unable to locate table %s", insertStatement.Table)
 	}
 
-	dataFilePath := filepath.Join(engine.Config.DataDir, insertStatement.Table, "data.csv")
-	dataFile, err := os.OpenFile(dataFilePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
-
-	if err != nil {
-		return 0, nil, err
-	}
-
-	defer func() {
-		if closeErr := dataFile.Close(); closeErr != nil {
-			err = closeErr
-		}
-	}()
-
-	if err != nil {
-		return 0, nil, err
-	}
-
-	writer := bufio.NewWriter(dataFile)
-
-	defer func() {
-		if flushErr := writer.Flush(); flushErr != nil {
-			err = flushErr
-		}
-	}()
-
-	var values []string
-
-	fileInfo, _ := dataFile.Stat()
-	fileOffset := fileInfo.Size()
-	values = append(values, fmt.Sprintf("%d", fileOffset))
-
 	returningLookup := make(map[string]int)
-	returnValues := make([]string, len(insertStatement.Returning))
+	returnValues := make([]interface{}, len(insertStatement.Returning))
 
 	if len(insertStatement.Returning) > 0 {
 		for i, c := range insertStatement.Returning {
@@ -60,33 +24,25 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}
 
 	for _, column := range metadata.Columns {
-		value := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
-		valueString := fmt.Sprintf("%s", value)
-		values = append(values, valueString)
+		v := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
 
 		if k, ok := returningLookup[column.Name]; ok {
-			returnValues[k] = valueString
+			returnValues[k] = v
 		}
 
-		if index, ok := engine.Indexes[metadata.Name]; ok {
-			f := &indexedField{value: valueString, offsets: []int64{fileOffset}}
-
-			if column.PrimaryKey && index.Find(f) != nil {
-				return 0, EmptyResultSet(), errors.New("primary key violation")
-			}
-
-			r := index.Insert(f)
-			if r != nil {
-				oldField := r.(*indexedField)
-				oldField.offsets = append(oldField.offsets, fileOffset)
-			}
-		}
-	}
-
-	csvWriter := csv.NewWriter(writer)
-
-	if err := csvWriter.Write(values); err != nil {
-		return 0, nil, err
+		// if index, ok := engine.Indexes[metadata.Name]; ok {
+		// 	f := &indexedField{value: valueString, offsets: []int64{fileOffset}}
+		//
+		// 	if column.PrimaryKey && index.Find(f) != nil {
+		// 		return 0, EmptyResultSet(), errors.New("primary key violation")
+		// 	}
+		//
+		// 	r := index.Insert(f)
+		// 	if r != nil {
+		// 		oldField := r.(*indexedField)
+		// 		oldField.offsets = append(oldField.offsets, fileOffset)
+		// 	}
+		// }
 	}
 
 	return 1, &ResultSet{
@@ -96,15 +52,15 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}, nil
 }
 
-func rowsFromValues(rows ...[]string) <-chan Row {
+func rowsFromValues(rows ...[]interface{}) <-chan Row {
 	resultChan := make(chan Row, len(rows))
 
 	go func() {
 		defer close(resultChan)
 
-		for _, r := range rows {
+		for range rows {
 			resultChan <- Row{
-				Data:    r,
+				Data:    nil,
 				Offset:  0,
 				IsValid: false,
 			}

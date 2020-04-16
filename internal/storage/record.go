@@ -36,8 +36,8 @@ func NewRecord(key int, fields []Field) Record {
 	}
 }
 
-// WriteTo writes a record to the specified writer
-func (r *Record) Write(bs io.Writer) error {
+// Write writes a record to the specified writer
+func (r Record) Write(bs io.Writer) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
 	varintBuf := make([]byte, 9)
@@ -167,4 +167,59 @@ func NewMasterTableRecord(key int, typeName string, name string, tableName strin
 			Data: sqlText,
 		},
 	})
+}
+
+func ReadRecord(r io.ByteReader) (Record, error) {
+	payloadBytes, err := binary.ReadUvarint(r)
+	if err != nil {
+		return Record{}, err
+	}
+
+	key, err := binary.ReadUvarint(r)
+	if err != nil {
+		return Record{}, err
+	}
+
+	var fields []Field
+	recordHeaderLen, err := binary.ReadUvarint(r)
+	// Subtract the # of bytes for the header len.
+	// Need to find out how many bytes were used for the varint
+	recordHeaderLen = recordHeaderLen - 1
+	for recordHeaderLen > 0 {
+		colType, err := binary.ReadUvarint(r)
+		if err != nil {
+			return Record{}, err
+		}
+
+		var sqlType SQLType
+		switch colType {
+		case 0: // Null
+			sqlType = Key
+			recordHeaderLen = recordHeaderLen - 1
+		case 1:
+			sqlType = Byte
+			recordHeaderLen = recordHeaderLen - 1
+		case 2:
+			sqlType = SmallInt
+			recordHeaderLen = recordHeaderLen - 1
+		case 4:
+			sqlType = Integer
+			recordHeaderLen = recordHeaderLen - 1
+		default:
+			sqlType = Text
+			// TODO: handle text
+			// Not sure how many bytes this took?
+			recordHeaderLen = recordHeaderLen - 1
+		}
+
+		fields = append(fields, Field{
+			Type: sqlType,
+			Data: nil,
+		})
+	}
+
+	return Record{
+		Key:    int(key),
+		Fields: fields,
+	}, nil
 }

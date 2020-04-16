@@ -35,6 +35,11 @@ func (i *StartCommand) Run(args []string) int {
 	if err != nil {
 		return 1
 	}
+	_, err = db.Execute("INSERT INTO company (name) VALUES ('hashicorp')")
+	if err != nil {
+		return 1
+	}
+
 	<-i.ShutDownCh
 	return 0
 }
