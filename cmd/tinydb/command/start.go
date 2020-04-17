@@ -43,6 +43,10 @@ func (i *StartCommand) Run(args []string) int {
 	if err != nil {
 		return 1
 	}
+	_, err = db.Execute("SELECT * FROM company")
+	if err != nil {
+		return 1
+	}
 
 	<-i.ShutDownCh
 	return 0
