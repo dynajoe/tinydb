@@ -4,7 +4,19 @@ import (
 	"fmt"
 
 	"github.com/joeandaverde/tinydb/ast"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
+
+// TODO: this is to get things to compile, need to actually get auto incr key
+var keys = make(map[string]int)
+
+func nextKey(tableName string) int {
+	if _, ok := keys[tableName]; !ok {
+		keys[tableName] = 0
+	}
+	keys[tableName] = keys[tableName] + 1
+	return keys[tableName]
+}
 
 func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
 	engine.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
@@ -23,26 +35,54 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		}
 	}
 
+	fields := []*storage.Field{}
+	var primaryKey int
 	for _, column := range metadata.Columns {
-		v := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
-
-		if k, ok := returningLookup[column.Name]; ok {
-			returnValues[k] = v
+		expr, ok := insertStatement.Values[column.Name]
+		if !ok {
+			fields = append(fields, &storage.Field{
+				Type: column.Type,
+				Data: column.DefaultValue(),
+			})
+			continue
 		}
 
-		// if index, ok := engine.Indexes[metadata.Name]; ok {
-		// 	f := &indexedField{value: valueString, offsets: []int64{fileOffset}}
-		//
-		// 	if column.PrimaryKey && index.Find(f) != nil {
-		// 		return 0, EmptyResultSet(), errors.New("primary key violation")
-		// 	}
-		//
-		// 	r := index.Insert(f)
-		// 	if r != nil {
-		// 		oldField := r.(*indexedField)
-		// 		oldField.offsets = append(oldField.offsets, fileOffset)
-		// 	}
-		// }
+		v := ast.Evaluate(expr, nilEvalContext{})
+
+		switch c := v.Value.(type) {
+		case string:
+			fields = append(fields, &storage.Field{
+				Type: storage.Text,
+				Data: c,
+			})
+		case int, int16, int32, int64, uint, uint16, uint32, uint64:
+			// TODO: technically need to handle signed values differently
+			fields = append(fields, &storage.Field{
+				Type: storage.Integer,
+				Data: c,
+			})
+		case byte, int8:
+			fields = append(fields, &storage.Field{
+				Type: storage.Byte,
+				Data: c,
+			})
+		}
+	}
+
+	rootPage, err := engine.Pager.Read(metadata.RootPage)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if primaryKey == 0 {
+		primaryKey = nextKey(insertStatement.Table)
+	}
+	record := storage.NewRecord(primaryKey, fields)
+	if err := storage.WriteRecord(rootPage, record); err != nil {
+		return 0, nil, err
+	}
+	if err := engine.Pager.Write(rootPage); err != nil {
+		return 0, nil, err
 	}
 
 	return 1, &ResultSet{

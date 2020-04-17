@@ -11,7 +11,7 @@ import (
 func TestRecord_Write(t *testing.T) {
 	assert := require.New(t)
 	stringContent := "Databases"
-	h := NewRecord(1, []Field{
+	h := NewRecord(1, []*Field{
 		{
 			Type: Key,
 			Data: 23500,
@@ -61,7 +61,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 	expectedText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et"
 	pageSize := 256
 	page := NewPage(2, uint16(pageSize))
-	record := NewRecord(5, []Field{
+	record := NewRecord(5, []*Field{
 		{
 			Type: Integer,
 			Data: 1337,

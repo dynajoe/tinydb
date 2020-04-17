@@ -25,15 +25,16 @@ import (
 type (
 	// ColumnDefinition represents a specification for a column in a table
 	ColumnDefinition struct {
-		Name       string `json:"name"`
-		Type       string `json:"type"`
-		Offset     int    `json:"offset"`
-		PrimaryKey bool   `json:"is_primary_key"`
+		Name       string          `json:"name"`
+		Type       storage.SQLType `json:"type"`
+		Offset     int             `json:"offset"`
+		PrimaryKey bool            `json:"is_primary_key"`
 	}
 
 	TableDefinition struct {
-		Name    string             `json:"name"`
-		Columns []ColumnDefinition `json:"columns"`
+		Name     string             `json:"name"`
+		Columns  []ColumnDefinition `json:"columns"`
+		RootPage int                `json:"root_page"`
 	}
 
 	columnLookup struct {
@@ -309,4 +310,11 @@ func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*Executio
 		ColumnLookup: colLookup,
 		Engine:       engine,
 	}, nil
+}
+
+func (c *ColumnDefinition) DefaultValue() interface{} {
+	if c.PrimaryKey {
+		return nextKey(c.Name)
+	}
+	return c.DefaultValue
 }

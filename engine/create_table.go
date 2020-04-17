@@ -40,7 +40,7 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 	for i, c := range createStatement.Columns {
 		columnDefinitions = append(columnDefinitions, ColumnDefinition{
 			Name:       c.Name,
-			Type:       c.Type,
+			Type:       storage.SQLTypeFromString(c.Type),
 			Offset:     i,
 			PrimaryKey: c.PrimaryKey,
 		})
