@@ -9,12 +9,23 @@ import (
 type SQLType uint32
 
 const (
-	Byte     = 1
-	SmallInt = 2
-	Integer  = 4
-	Key      = 24
-	Text     = 28
+	Byte    = 1
+	Integer = 4
+	Key     = 24
+	Text    = 28
 )
+
+func SQLTypeFromString(t string) SQLType {
+	switch t {
+	case "text":
+		return Text
+	case "int":
+		return Integer
+	case "byte":
+		return Byte
+	}
+	panic("unexpected SQL string type")
+}
 
 // Field is a field in a database record
 type Field struct {
@@ -54,8 +65,6 @@ func (r Record) Write(bs io.ByteWriter) error {
 			colBuf.WriteByte(0)
 		case Byte:
 			colBuf.WriteByte(1)
-		case SmallInt:
-			colBuf.WriteByte(2)
 		case Integer:
 			colBuf.WriteByte(4)
 		case Text:
@@ -126,9 +135,9 @@ func WriteRecord(p *MemPage, r Record) error {
 
 	recordBytes := buf.Bytes()
 	cellOffset := p.CellsOffset - uint16(len(recordBytes))
-	cellOffsetPointer := p.NumCells * 2
+	cellOffsetPointer := 8 + p.NumCells*2
 	if p.PageNumber == 1 {
-		cellOffsetPointer = cellOffsetPointer + 108 // header size + offset
+		cellOffsetPointer = cellOffsetPointer + 100
 	}
 
 	// Write the offset of the data cell
@@ -210,9 +219,6 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 		case 1:
 			sqlType = Byte
 			numBytes = 1
-		case 2:
-			sqlType = SmallInt
-			numBytes = 2
 		case 4:
 			sqlType = Integer
 			numBytes = 4
