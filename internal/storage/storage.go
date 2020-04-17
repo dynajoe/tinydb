@@ -11,7 +11,7 @@ func BTreeFromPage(p *MemPage) *btree.BTree {
 	bt := btree.New(5)
 
 	cellsList := make([]uint16, p.NumCells)
-	cells := make([]Record, p.NumCells)
+
 	// TODO: assumes always leaf page
 	offset := 8
 	if p.PageNumber == 1 {
@@ -30,13 +30,17 @@ func BTreeFromPage(p *MemPage) *btree.BTree {
 	}
 
 	// Load records
-	for i, offset := range cellsList {
+	for _, offset := range cellsList {
 		reader := bytes.NewReader(p.Data[offset:])
 		record, err := ReadRecord(reader)
 		if err != nil {
 			panic(err.Error())
 		}
-		cells[i] = record
+
+		bt.Insert(&btree.StringItem{
+			Key:  record.Fields[1].Data.(string),
+			Data: &record,
+		})
 	}
 
 	return bt

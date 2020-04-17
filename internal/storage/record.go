@@ -20,16 +20,17 @@ const (
 type Field struct {
 	Type SQLType
 	Data interface{}
+	Len  int
 }
 
 // Record is a set of fields
 type Record struct {
-	Fields []Field
+	Fields []*Field
 	Key    int
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(key int, fields []Field) Record {
+func NewRecord(key int, fields []*Field) Record {
 	return Record{
 		Key:    key,
 		Fields: fields,
@@ -146,7 +147,7 @@ func WriteRecord(p *MemPage, r Record) error {
 }
 
 func NewMasterTableRecord(key int, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
-	return NewRecord(key, []Field{
+	return NewRecord(key, []*Field{
 		{
 			Type: Text,
 			// type: text
@@ -177,52 +178,73 @@ func NewMasterTableRecord(key int, typeName string, name string, tableName strin
 }
 
 func ReadRecord(r io.ByteReader) (Record, error) {
-	_, err := binary.ReadUvarint(r)
+	_, _, err := ReadVarint(r)
 	if err != nil {
 		return Record{}, err
 	}
 
-	key, err := binary.ReadUvarint(r)
+	key, _, err := ReadVarint(r)
 	if err != nil {
 		return Record{}, err
 	}
 
-	var fields []Field
-	recordHeaderLen, err := binary.ReadUvarint(r)
+	var fields []*Field
+	recordHeaderLen, _, err := ReadVarint(r)
 	// Subtract the # of bytes for the header len.
 	// Need to find out how many bytes were used for the varint
 	recordHeaderLen = recordHeaderLen - 1
 	for recordHeaderLen > 0 {
-		colType, err := binary.ReadUvarint(r)
+		colType, n, err := ReadVarint(r)
 		if err != nil {
 			return Record{}, err
 		}
 
 		var sqlType SQLType
+		numBytes := 1
 		switch colType {
 		case 0: // Null
+			// TODO: this needs to be properly handled
 			sqlType = Key
-			recordHeaderLen = recordHeaderLen - 1
+			// Null isn't stored in the record data
+			numBytes = 0
 		case 1:
 			sqlType = Byte
-			recordHeaderLen = recordHeaderLen - 1
+			numBytes = 1
 		case 2:
 			sqlType = SmallInt
-			recordHeaderLen = recordHeaderLen - 1
+			numBytes = 2
 		case 4:
 			sqlType = Integer
-			recordHeaderLen = recordHeaderLen - 1
+			numBytes = 4
 		default:
+			// TODO: default for text isnt appropriate, it should be something like
+			// odd numbers greater than 12?
 			sqlType = Text
-			// TODO: handle text
-			// Not sure how many bytes this took?
-			recordHeaderLen = recordHeaderLen - 1
+			numBytes = int(colType-13) / 2
 		}
 
-		fields = append(fields, Field{
+		fields = append(fields, &Field{
 			Type: sqlType,
+			Len:  numBytes,
 			Data: nil,
 		})
+
+		recordHeaderLen = recordHeaderLen - uint64(n)
+	}
+
+	for _, f := range fields {
+		switch f.Type {
+		case Byte:
+			b, _ := r.ReadByte()
+			f.Data = b
+		case Text:
+			var bs []byte
+			for i := 0; i < f.Len; i++ {
+				b, _ := r.ReadByte()
+				bs = append(bs, b)
+			}
+			f.Data = string(bs)
+		}
 	}
 
 	return Record{
