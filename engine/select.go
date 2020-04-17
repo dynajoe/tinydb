@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/joeandaverde/tinydb/ast"
@@ -57,7 +58,17 @@ func EmptyResultSet() *ResultSet {
 }
 
 func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	rowReader, err := newTableScanner(engine.Config, s.table.Name)
+	tableName := s.table.Name
+	metadata, err := engine.GetTableDefinition(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to locate table %s", tableName)
+	}
+	rootPage, err := engine.Pager.Read(metadata.RootPage)
+	if err != nil {
+		return nil, err
+	}
+
+	rowReader, err := newTableScanner(engine.Config)
 
 	if err != nil {
 		return nil, err
