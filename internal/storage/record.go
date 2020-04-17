@@ -37,10 +37,9 @@ func NewRecord(key int, fields []Field) Record {
 }
 
 // Write writes a record to the specified writer
-func (r Record) Write(bs io.Writer) error {
+func (r Record) Write(bs io.ByteWriter) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
-	varintBuf := make([]byte, 9)
 	for _, f := range r.Fields {
 		// If data is nil indicate
 		// the SQL type is NULL
@@ -60,8 +59,10 @@ func (r Record) Write(bs io.Writer) error {
 			colBuf.WriteByte(4)
 		case Text:
 			fieldSize := uint64(2*len(f.Data.(string)) + 13)
-			n := binary.PutUvarint(varintBuf, fieldSize)
-			colBuf.Write(varintBuf[:n])
+			_, err := WriteVarint(&colBuf, fieldSize)
+			if err != nil {
+				panic("unable to write varint")
+			}
 		default:
 			panic("Unknown sql type")
 		}
@@ -101,11 +102,17 @@ func (r Record) Write(bs io.Writer) error {
 		}
 	}
 
-	n := binary.PutUvarint(varintBuf, uint64(len(recordBuffer.Bytes())))
-	bs.Write(varintBuf[:n])
-	n = binary.PutUvarint(varintBuf, uint64(r.Key))
-	bs.Write(varintBuf[:n])
-	bs.Write(recordBuffer.Bytes())
+	if _, err := WriteVarint(bs, uint64(len(recordBuffer.Bytes()))); err != nil {
+		return err
+	}
+	if _, err := WriteVarint(bs, uint64(r.Key)); err != nil {
+		return err
+	}
+	for _, b := range recordBuffer.Bytes() {
+		if err := bs.WriteByte(b); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -170,7 +177,7 @@ func NewMasterTableRecord(key int, typeName string, name string, tableName strin
 }
 
 func ReadRecord(r io.ByteReader) (Record, error) {
-	payloadBytes, err := binary.ReadUvarint(r)
+	_, err := binary.ReadUvarint(r)
 	if err != nil {
 		return Record{}, err
 	}
