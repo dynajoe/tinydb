@@ -1,36 +1,36 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"github.com/joeandaverde/tinydb/ast"
-	log "github.com/sirupsen/logrus"
-	"io"
 	"io/ioutil"
-	"os"
+	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/joeandaverde/tinydb/ast"
+
 	"github.com/joeandaverde/tinydb/internal/btree"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 type (
 	// ColumnDefinition represents a specification for a column in a table
 	ColumnDefinition struct {
-		Name       string `json:"name"`
-		Type       string `json:"type"`
-		Offset     int    `json:"offset"`
-		PrimaryKey bool   `json:"is_primary_key"`
+		Name       string          `json:"name"`
+		Type       storage.SQLType `json:"type"`
+		Offset     int             `json:"offset"`
+		PrimaryKey bool            `json:"is_primary_key"`
 	}
 
 	TableDefinition struct {
-		Name    string             `json:"name"`
-		Columns []ColumnDefinition `json:"columns"`
+		Name     string             `json:"name"`
+		Columns  []ColumnDefinition `json:"columns"`
+		RootPage int                `json:"root_page"`
 	}
 
 	columnLookup struct {
@@ -62,12 +62,13 @@ type (
 		Tables    map[string]TableDefinition
 		Log       *log.Logger
 		Config    *Config
+		Pager     *storage.Pager
 		adminLock sync.Mutex
 	}
 
 	ExecutionEnvironment struct {
 		ColumnLookup map[string]columnLookup
-		Tables       map[string]TableDefinition
+		Tables       map[string]*TableDefinition
 		Columns      []string
 		Indexes      map[string]*btree.BTree
 		Engine       *Engine
@@ -94,38 +95,18 @@ func Start(basePath string) *Engine {
 	tables := loadTableDefinitions(config)
 	indexes := buildIndexes(config, tables)
 	logger := log.New()
+	pager, err := storage.Open(path.Join(config.DataDir, "tiny.db"))
+	if err != nil {
+		panic("failed to open database")
+	}
 
 	return &Engine{
 		Tables:  tables,
 		Indexes: indexes,
 		Config:  config,
 		Log:     logger,
+		Pager:   pager,
 	}
-}
-
-type rowGenerator struct {
-	csvReader *csv.Reader
-	next      []string
-}
-
-func NewRowGenerator(reader *csv.Reader) *rowGenerator {
-	return &rowGenerator{csvReader: reader}
-}
-
-func (g *rowGenerator) Scan() bool {
-	data, err := g.csvReader.Read()
-
-	if err == io.EOF || err != nil {
-		return false
-	}
-
-	g.next = data
-	return true
-}
-
-func (g *rowGenerator) Read() Row {
-	offset, _ := strconv.ParseInt(g.next[0], 10, 64)
-	return Row{Data: g.next[1:], Offset: offset, IsValid: true}
 }
 
 // Execute runs a statement against the database engine
@@ -183,37 +164,24 @@ func executeStatement(engine *Engine, statement ast.Statement) (*ResultSet, erro
 	}
 }
 
-func newTableScanner(config *Config, tableName string) (RowReader, error) {
-	csvFile, err := os.Open(filepath.Join(config.DataDir, tableName, "data.csv"))
-
-	if err != nil {
-		return nil, err
-	}
-
-	reader := bufio.NewReader(csvFile)
-	tableCsv := csv.NewReader(reader)
-
-	return NewRowGenerator(tableCsv), nil
-}
-
 func buildIndex(config *Config, job *pkJob) {
-	rowReader, err := newTableScanner(config, job.table.Name)
+	// rowReader, err := newTableScanner(config, job.table.Name)
 
-	if err != nil {
-		panic("unable to build index")
-	}
+	// if err != nil {
+	// 	panic("unable to build index")
+	// }
 
 	b := btree.New(5)
-	for rowReader.Scan() {
-		row := rowReader.Read()
-		b.Upsert(&indexedField{
-			value:   row.Data[job.fieldIndex],
-			offsets: []int64{row.Offset},
-		}, func(old, new btree.Item) {
-			newField := new.(*indexedField)
-			newField.offsets = append(old.(*indexedField).offsets, row.Offset)
-		})
-	}
+	// for rowReader.Scan() {
+	// 	row := rowReader.Read()
+	// 	b.Upsert(&indexedField{
+	// 		value:   row.Data[job.fieldIndex],
+	// 		offsets: []int64{row.Offset},
+	// 	}, func(old, new btree.Item) {
+	// 		newField := new.(*indexedField)
+	// 		newField.offsets = append(old.(*indexedField).offsets, row.Offset)
+	// 	})
+	// }
 
 	job.result = b
 }
@@ -276,14 +244,22 @@ func loadTableDefinitions(config *Config) map[string]TableDefinition {
 
 func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
 	colLookup := make(map[string]columnLookup)
-	tableMetadata := make(map[string]TableDefinition)
-	allMetadata := make([]TableDefinition, len(tables))
+	tableMetadata := make(map[string]*TableDefinition)
+	allMetadata := make([]*TableDefinition, len(tables))
 	i := 0
 	for _, tableAlias := range tables {
-		metadata, _ := engine.Tables[tableAlias.Name]
-
+		tableName := tableAlias.Name
+		metadata, err := engine.GetTableDefinition(tableName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to locate table %s", tableName)
+		}
 		for _, c := range metadata.Columns {
-			colLookup[fmt.Sprintf("%s.%s", tableAlias.Alias, c.Name)] = columnLookup{
+			lookupKey := c.Name
+			if tableAlias.Alias != "" {
+				lookupKey = tableAlias.Alias + "." + lookupKey
+			}
+
+			colLookup[lookupKey] = columnLookup{
 				index:  i,
 				alias:  tableAlias,
 				column: c,
@@ -300,4 +276,11 @@ func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*Executio
 		ColumnLookup: colLookup,
 		Engine:       engine,
 	}, nil
+}
+
+func (c *ColumnDefinition) DefaultValue() interface{} {
+	if c.PrimaryKey {
+		return nextKey(c.Name)
+	}
+	return c.DefaultValue
 }

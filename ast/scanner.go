@@ -16,6 +16,7 @@ type TinyScanner interface {
 	Mark() (int, func())
 	Range(int, int) []TinyDBItem
 	Reset()
+	Text() string
 }
 
 type tinyScanner struct {
@@ -28,56 +29,60 @@ type tinyScanner struct {
 }
 
 // Start resets the scanner to the start
-func (scanner *tinyScanner) Reset() {
-	scanner.position = 0
-	scanner.committed = ""
-	scanner.isAborted = false
+func (s *tinyScanner) Reset() {
+	s.position = 0
+	s.committed = ""
+	s.isAborted = false
 }
 
-func (scanner *tinyScanner) Range(start int, end int) []TinyDBItem {
-	return scanner.items[start:end]
+func (s *tinyScanner) Text() string {
+	return s.input
 }
 
-func (scanner *tinyScanner) Mark() (int, func()) {
-	position := scanner.position
-	committed := scanner.committed
-	return scanner.position, func() {
-		scanner.position = position
-		scanner.committed = committed
+func (s *tinyScanner) Range(start int, end int) []TinyDBItem {
+	return s.items[start:end]
+}
+
+func (s *tinyScanner) Mark() (int, func()) {
+	position := s.position
+	committed := s.committed
+	return s.position, func() {
+		s.position = position
+		s.committed = committed
 	}
 }
 
-func (scanner *tinyScanner) Peek() TinyDBItem {
-	token := scanner.Next()
+func (s *tinyScanner) Peek() TinyDBItem {
+	token := s.Next()
 
-	if scanner.position >= 1 {
-		scanner.Backup()
+	if s.position >= 1 {
+		s.Backup()
 	}
 
 	return token
 }
 
-func (scanner *tinyScanner) Backup() {
-	if scanner.position > 0 {
-		scanner.position--
+func (s *tinyScanner) Backup() {
+	if s.position > 0 {
+		s.position--
 	} else {
 		panic("Attempting to back up before any tokens")
 	}
 }
 
-func (scanner *tinyScanner) Pos() int {
-	return scanner.position
+func (s *tinyScanner) Pos() int {
+	return s.position
 }
 
-func (scanner *tinyScanner) Info() {
+func (s *tinyScanner) Info() {
 	fmt.Printf("context: %s\n\tposition: %d\n\titems: %s\n\n",
-		scanner.committed,
-		scanner.position,
-		scanner.items)
+		s.committed,
+		s.position,
+		s.items)
 }
 
-func (scanner *tinyScanner) Next() TinyDBItem {
-	if scanner.isAborted {
+func (s *tinyScanner) Next() TinyDBItem {
+	if s.isAborted {
 		return TinyDBItem{
 			Token:    tsqlEOF,
 			Position: 0,
@@ -87,18 +92,18 @@ func (scanner *tinyScanner) Next() TinyDBItem {
 
 	var token TinyDBItem
 
-	if scanner.position >= len(scanner.items) {
-		token = scanner.lexer.nextItem()
-		scanner.items = append(scanner.items, token)
+	if s.position >= len(s.items) {
+		token = s.lexer.nextItem()
+		s.items = append(s.items, token)
 	} else {
-		token = scanner.items[scanner.position]
+		token = s.items[s.position]
 	}
 
-	scanner.position++
+	s.position++
 
 	return token
 }
 
-func (scanner *tinyScanner) Commit(landmark string) {
-	scanner.committed = landmark
+func (s *tinyScanner) Commit(landmark string) {
+	s.committed = landmark
 }
