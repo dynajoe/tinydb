@@ -135,7 +135,8 @@ func WriteRecord(p *MemPage, r Record) error {
 	if p.PageNumber == 1 {
 		cellOffsetPointer = cellOffsetPointer + 100
 	}
-
+	// todo: need to ensure order of cell ptrs
+	// sorted by rowid
 	// Write the offset of the data cell
 	binary.BigEndian.PutUint16(p.Data[cellOffsetPointer:], cellOffset)
 
