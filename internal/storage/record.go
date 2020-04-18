@@ -3,7 +3,9 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"reflect"
 )
 
 type SQLType uint32
@@ -11,7 +13,6 @@ type SQLType uint32
 const (
 	Byte    = 1
 	Integer = 4
-	Key     = 24
 	Text    = 28
 )
 
@@ -61,8 +62,6 @@ func (r Record) Write(bs io.ByteWriter) error {
 		}
 
 		switch f.Type {
-		case Key:
-			colBuf.WriteByte(0)
 		case Byte:
 			colBuf.WriteByte(1)
 		case Integer:
@@ -89,8 +88,7 @@ func (r Record) Write(bs io.ByteWriter) error {
 
 	for _, f := range r.Fields {
 		// Nil is specified handled in header
-		// Key is in Header
-		if f.Data == nil || f.Type == Key {
+		if f.Data == nil {
 			continue
 		}
 
@@ -99,16 +97,14 @@ func (r Record) Write(bs io.ByteWriter) error {
 			recordBuffer.Write([]byte{byte(f.Data.(int8))})
 		case byte:
 			recordBuffer.Write([]byte{f.Data.(byte)})
-		case int16:
-			binary.Write(&recordBuffer, binary.BigEndian, uint16(f.Data.(int16)))
-		case int32:
-			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int32)))
-		case int64:
-			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int64)))
 		case int:
-			binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int)))
+			if err := binary.Write(&recordBuffer, binary.BigEndian, uint32(f.Data.(int))); err != nil {
+				return err
+			}
 		case string:
 			recordBuffer.Write([]byte(f.Data.(string)))
+		default:
+			return fmt.Errorf("not supported type: %v", reflect.TypeOf(f.Data))
 		}
 	}
 
@@ -211,11 +207,8 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 		var sqlType SQLType
 		numBytes := 1
 		switch colType {
-		case 0: // Null
-			// TODO: this needs to be properly handled
-			sqlType = Key
-			// Null isn't stored in the record data
-			numBytes = 0
+		case 0:
+			// NULL
 		case 1:
 			sqlType = Byte
 			numBytes = 1
@@ -243,6 +236,13 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 		case Byte:
 			b, _ := r.ReadByte()
 			f.Data = b
+		case Integer:
+			var bs []byte
+			for i := 0; i < f.Len; i++ {
+				b, _ := r.ReadByte()
+				bs = append(bs, b)
+			}
+			f.Data = int(binary.BigEndian.Uint32(bs))
 		case Text:
 			var bs []byte
 			for i := 0; i < f.Len; i++ {

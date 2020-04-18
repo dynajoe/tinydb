@@ -35,38 +35,41 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		}
 	}
 
-	fields := []*storage.Field{}
-	var primaryKey int
+	var fields []*storage.Field
+	addField := func(column ColumnDefinition, value interface{}) {
+		if k, ok := returningLookup[column.Name]; ok {
+			returnValues[k] = value
+		}
+		switch value.(type) {
+		case string:
+			if column.Type != storage.Text {
+				panic("type conversion not implemented")
+			}
+		case int:
+			if column.Type != storage.Integer {
+				panic("type conversion not implemented")
+			}
+		case byte:
+			if column.Type != storage.Byte {
+				panic("type conversion not implemented")
+			}
+		}
+		fields = append(fields, &storage.Field{
+			Type: column.Type,
+			Data: value,
+		})
+	}
+	rowID := nextKey(insertStatement.Table)
 	for _, column := range metadata.Columns {
 		expr, ok := insertStatement.Values[column.Name]
 		if !ok {
-			fields = append(fields, &storage.Field{
-				Type: column.Type,
-				Data: column.DefaultValue(),
-			})
+			addField(column, column.DefaultValue())
 			continue
 		}
 
+		// TODO: this value type may need to be cast or asserted
 		v := ast.Evaluate(expr, nilEvalContext{})
-
-		switch c := v.Value.(type) {
-		case string:
-			fields = append(fields, &storage.Field{
-				Type: storage.Text,
-				Data: c,
-			})
-		case int, int16, int32, int64, uint, uint16, uint32, uint64:
-			// TODO: technically need to handle signed values differently
-			fields = append(fields, &storage.Field{
-				Type: storage.Integer,
-				Data: c,
-			})
-		case byte, int8:
-			fields = append(fields, &storage.Field{
-				Type: storage.Byte,
-				Data: c,
-			})
-		}
+		addField(column, v.Value)
 	}
 
 	rootPage, err := engine.Pager.Read(metadata.RootPage)
@@ -74,10 +77,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		return 0, nil, err
 	}
 
-	if primaryKey == 0 {
-		primaryKey = nextKey(insertStatement.Table)
-	}
-	record := storage.NewRecord(primaryKey, fields)
+	record := storage.NewRecord(rowID, fields)
 	if err := storage.WriteRecord(rootPage, record); err != nil {
 		return 0, nil, err
 	}
@@ -98,9 +98,9 @@ func rowsFromValues(rows ...[]interface{}) <-chan Row {
 	go func() {
 		defer close(resultChan)
 
-		for range rows {
+		for _, r := range rows {
 			resultChan <- Row{
-				Data:    nil,
+				Data:    r,
 				Offset:  0,
 				IsValid: false,
 			}

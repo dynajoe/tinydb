@@ -62,7 +62,7 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 	}
 
 	cleanUp := func() {
-		os.RemoveAll(testDir)
+		_ = os.RemoveAll(testDir)
 	}
 
 	db := engine.Start(testDir)
@@ -85,18 +85,18 @@ func TestInsert(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	companies := map[string]string{
-		"1": "Netflix",
-		"2": "Facebook",
-		"3": "Apple",
-		"4": "Google",
+	companies := map[int]string{
+		1: "Netflix",
+		2: "Facebook",
+		3: "Apple",
+		4: "Google",
 	}
 
-	var results []string
+	var results []int
 	for companyId, companyName := range companies {
 		result, err := db.Execute(fmt.Sprintf(`
 			INSERT INTO company (company_id, company_name)
-			VALUES ('%s', '%s')
+			VALUES (%d, '%s')
 			RETURNING company_id;
 		`, companyId, companyName))
 
@@ -105,7 +105,7 @@ func TestInsert(t *testing.T) {
 		}
 
 		for r := range result.Rows {
-			results = append(results, r.Data[0].(string))
+			results = append(results, r.Data[0].(int))
 		}
 	}
 
@@ -117,7 +117,7 @@ func TestInsert(t *testing.T) {
 		statement := fmt.Sprintf(`
 			SELECT companyName.company_name
 			FROM company companyName
-			WHERE companyName.company_id = '%s' AND companyName.company_name = '%s';
+			WHERE companyName.company_id = %d AND companyName.company_name = '%s';
 		`, companyId, companies[companyId])
 
 		result, err := db.Execute(statement)

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,8 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joeandaverde/tinydb/ast"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/joeandaverde/tinydb/ast"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
@@ -107,11 +107,6 @@ func Start(basePath string) *Engine {
 		Log:     logger,
 		Pager:   pager,
 	}
-}
-
-type rowGenerator struct {
-	csvReader *csv.Reader
-	next      []string
 }
 
 // Execute runs a statement against the database engine
@@ -261,7 +256,7 @@ func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*Executio
 		for _, c := range metadata.Columns {
 			lookupKey := c.Name
 			if tableAlias.Alias != "" {
-				lookupKey = tableAlias.Name + "." + lookupKey
+				lookupKey = tableAlias.Alias + "." + lookupKey
 			}
 
 			colLookup[lookupKey] = columnLookup{
