@@ -19,6 +19,20 @@ type Pager struct {
 	mu         *sync.RWMutex
 }
 
+type CursorType byte
+
+const (
+	CURSOR_UNKNOWN = 0
+	CURSOR_READ    = 1
+	CURSOR_WRITE   = 2
+)
+
+type Cursor struct {
+	typ   CursorType
+	file  *os.File
+	start int64
+}
+
 // Open opens a new pager using the path specified.
 // The pager owns the file.
 func Open(path string) (*Pager, error) {
@@ -98,6 +112,40 @@ func NewPage(page int, pageSize uint16) *MemPage {
 		PageNumber: page,
 		Data:       make([]byte, pageSize),
 	}
+}
+
+func (p *Pager) OpenRead(page int) (*Cursor, error) {
+	return p.open(page, CURSOR_READ)
+}
+
+func (p *Pager) OpenWrite(page int) (*Cursor, error) {
+	return p.open(page, CURSOR_WRITE)
+}
+
+func (p *Pager) open(page int, typ CursorType) (*Cursor, error) {
+	mode := os.O_RDONLY
+	if typ == CURSOR_WRITE {
+		mode = os.O_RDWR
+	}
+
+	// TODO: add usercookie or something to lock this page if necessary
+	f, err := os.OpenFile(p.file.Name(), mode, os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+	start := p.pageOffset(page)
+	if _, err := f.Seek(start, 0); err != nil {
+		return nil, err
+	}
+	return &Cursor{
+		typ:   typ,
+		file:  f,
+		start: start,
+	}, nil
+}
+
+func (p *Pager) CloseCursor(c *Cursor) {
+	_ = c.file.Close()
 }
 
 // Read reads a full page from disk
