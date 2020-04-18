@@ -11,7 +11,17 @@ type op uint8
 // https://github.com/uchicago-cs/chidb/blob/master/src/libchidb/dbm-types.h
 const (
 	OpNoOp op = iota
+	// Opens B-Tree Rooted at page n
+	// and stores cursor in c
+	// P1 - cursor (c)
+	// P2 - page number (n)
+	// P3 - col count (0 if opening index)
 	OpOpenRead
+	// Opens B-Tree Rooted at page n
+	// and stores cursor in c
+	// P1 - cursor (c)
+	// P2 - page number (n)
+	// P3 - col count (0 if opening index)
 	OpOpenWrite
 	OpClose
 	OpRewind
@@ -24,11 +34,22 @@ const (
 	OpSeekLe
 	OpColumn
 	OpKey
+	// Stores int in register
+	// P1 - the int
+	// P2 - the register
 	OpInteger
 	OpString
 	OpNull
 	OpResultRow
+	// P1 - register start
+	// P2 - count of cols
+	// P3 - store record in this register
 	OpMakeRecord
+	// P1 - page
+	OpRowID
+	// P1 - cursor
+	// P2 - register containing the record
+	// P3 - register with record key
 	OpInsert
 	OpEq
 	OpNe
@@ -42,6 +63,8 @@ const (
 	OpIdxLe
 	OpIdxPKey
 	OpIdxInsert
+	// Create a new B-Tree
+	// P1 - register for root page
 	OpCreateTable
 	OpCreateIndex
 	OpCopy
@@ -52,16 +75,17 @@ const (
 type reg uint
 
 const (
-	RegUnspecified = 0
-	RegNull        = 1
-	RegInt32       = 2
-	RegString      = 3
-	RegBinary      = 4
+	RegUnspecified reg = iota
+	RegNull
+	RegInt32
+	RegString
+	RegBinary
+	RegRecord
 )
 
 type register struct {
 	typ  reg
-	data []byte
+	data interface{}
 }
 
 type instruction struct {
@@ -129,12 +153,7 @@ func (p *program) step() int {
 	case OpInteger:
 		v := i.p1
 		r := i.p2
-		reg := p.regs[r]
-
-		data := make([]byte, 4)
-		binary.BigEndian.PutUint32(data, uint32(v))
-		reg.data = data
-		reg.typ = RegInt32
+		writeInt(p.regs[r], v)
 	case OpString:
 		r := i.p2
 		s := p.strings[i.p3]
@@ -231,20 +250,88 @@ func (p *program) step() int {
 			reg := p.regs[i]
 			switch reg.typ {
 			case RegInt32:
-				result = append(result, int(binary.BigEndian.Uint32(reg.data)))
+				result = append(result, reg.data.(int))
 			case RegBinary:
 				// TODO: shoud copy the buffer?
-				result = append(result, reg.data)
+				result = append(result, reg.data.([]byte))
 			case RegString:
-				result = append(result, string(reg.data))
+				result = append(result, reg.data.(string))
 			case RegNull:
 				result = append(result, nil)
 			}
 		}
 		p.results <- result
+	case OpCreateTable:
+		// Allocate a page for the new table
+		rootPage, err := p.engine.Pager.Allocate()
+		if err != nil {
+			panic("unable to allocate page for table")
+		}
+		writeInt(p.regs[i.p1], rootPage.PageNumber)
+	case OpMakeRecord:
+		startReg := i.p1
+		colCount := i.p2
+		endReg := startReg + colCount - 1
+		destReg := p.regs[i.p3]
+		var fields []*storage.Field
+
+		for i := startReg; i <= endReg; i++ {
+			reg := p.regs[i]
+			switch reg.typ {
+			case RegInt32:
+				// TODO: this needs to be more sophisticated and handle signed ints appropriately
+				value := reg.data.(int)
+
+				// Can this number fit in a single byte?
+				if 0xFF&value == value {
+					fields = append(fields, &storage.Field{
+						Type: storage.Byte,
+						Data: byte(value),
+					})
+					continue
+				}
+
+				// Can't fit in a single byte - store as int
+				fields = append(fields, &storage.Field{
+					Type: storage.Integer,
+					Data: value,
+				})
+			case RegString:
+				fields = append(fields, &storage.Field{
+					Type: storage.Text,
+					Data: reg.data.(string),
+				})
+			case RegNull:
+				fields = append(fields, &storage.Field{
+					Type: storage.Null,
+					Data: nil,
+				})
+			default:
+				panic("unsupported register type for record")
+			}
+		}
+
+		destReg.typ = RegRecord
+		destReg.data = storage.NewRecord(fields)
+	case OpRowID:
+		writeInt(p.regs[i.p1], nextKey("master"))
+	case OpInsert:
+		// cursor := p.cursors[i.p1]
+		// record := p.regs[i.p2].data.(storage.Record)
+		// key := p.regs[i.p3].data.(int)
+		// write data to cursor
+		// probably need to seek to page where the cell should be written based on the key
+		// write data and header
 	}
 
 	return 0
+}
+
+func writeInt(reg *register, v int) {
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint32(data, uint32(v))
+	reg.data = data
+	reg.typ = RegInt32
 }
 
 func less(a *register, b *register) bool {
@@ -254,9 +341,9 @@ func less(a *register, b *register) bool {
 
 	switch a.typ {
 	case RegString:
-		return string(a.data) < string(b.data)
+		return a.data.(string) < b.data.(string)
 	case RegInt32:
-		return binary.BigEndian.Uint32(a.data) < binary.BigEndian.Uint32(b.data)
+		return a.data.(int) < b.data.(int)
 	case RegNull:
 		return false
 	case RegBinary:
@@ -266,21 +353,12 @@ func less(a *register, b *register) bool {
 		// If the common bytes are equal, then the blob with the fewer bytes
 		// is considered to be less than the blob with more bytes.
 		// TODO: implement above
-		return len(a.data) < len(b.data)
+		return len(a.data.([]byte)) < len(b.data.([]byte))
 	}
 
 	return false
 }
 
 func eq(a *register, b *register) bool {
-	if len(a.data) != len(b.data) {
-		return false
-	}
-
-	for i, v := range a.data {
-		if v != b.data[i] {
-			return false
-		}
-	}
-	return true
+	return !less(a, b) && !less(b, a)
 }

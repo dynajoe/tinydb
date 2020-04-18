@@ -26,10 +26,10 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		return nil, err
 	}
 	// Update Page 1 with the new table record
-	tableRecord := storage.NewMasterTableRecord(recordKey, "table", createStatement.TableName,
+	tableRecord := storage.NewMasterTableRecord("table", createStatement.TableName,
 		createStatement.TableName, rootPage.PageNumber, createStatement.RawText)
 
-	if err := storage.WriteRecord(pageOne, tableRecord); err != nil {
+	if err := storage.WriteRecord(pageOne, recordKey, tableRecord); err != nil {
 		return nil, err
 	}
 	if err := engine.Pager.Write(pageOne, rootPage); err != nil {
