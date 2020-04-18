@@ -13,7 +13,7 @@ func TestRecord_Write(t *testing.T) {
 	stringContent := "Databases"
 	h := NewRecord(1, []*Field{
 		{
-			Type: Key,
+			Type: Integer,
 			Data: 23500,
 		},
 		{

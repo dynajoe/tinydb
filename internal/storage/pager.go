@@ -33,6 +33,11 @@ type Cursor struct {
 	start int64
 }
 
+func (c *Cursor) Rewind() error {
+	_, err := c.file.Seek(c.start, 0)
+	return err
+}
+
 // Open opens a new pager using the path specified.
 // The pager owns the file.
 func Open(path string) (*Pager, error) {
