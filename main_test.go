@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/joeandaverde/tinydb/ast"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/joeandaverde/tinydb/ast"
 
 	"github.com/joeandaverde/tinydb/engine"
 )
@@ -104,7 +105,7 @@ func TestInsert(t *testing.T) {
 		}
 
 		for r := range result.Rows {
-			results = append(results, r.Data[0])
+			results = append(results, r.Data[0].(string))
 		}
 	}
 

@@ -7,11 +7,12 @@ import (
 	"github.com/joeandaverde/tinydb/ast"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 // Row is a row in a result
 type Row struct {
-	Data    []string
+	Data    []interface{}
 	Offset  int64
 	IsValid bool
 }
@@ -68,26 +69,26 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 		return nil, err
 	}
 
-	rowReader, err := newTableScanner(engine.Config)
-
-	if err != nil {
-		return nil, err
-	}
-
+	rows := storage.RowReader(rootPage)
 	results := make(chan Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
 		defer close(results)
 		defer close(errorChan)
-
-		for rowReader.Scan() {
-			row := rowReader.Read()
-			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: row.Data}).Value != true {
+		for row := range rows {
+			mappedData := make([]interface{}, len(metadata.Columns))
+			// TODO: how do default values work
+			// How do primary keys work?
+			for i := range metadata.Columns {
+				mappedData[i] = row.Fields[i].Data
+			}
+			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: mappedData}).Value != true {
 				continue
 			}
-
-			results <- row
+			results <- Row{
+				Data: mappedData,
+			}
 		}
 	}()
 
@@ -120,11 +121,11 @@ func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) execu
 }
 
 func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	rowReader, err := newTableScanner(engine.Config, s.table.Name)
+	//rowReader, err := newTableScanner(engine.Config, s.table.Name)
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	results := make(chan Row)
 	errorChan := make(chan error, 1)
@@ -133,21 +134,21 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 		defer close(results)
 		defer close(errorChan)
 
-		item := s.index.Find(&indexedField{
-			value: s.value,
-		})
+		// item := s.index.Find(&indexedField{
+		// 	value: s.value,
+		// })
 
-		if f, ok := item.(*indexedField); ok {
-			for rowReader.Scan() {
-				row := rowReader.Read()
-				for _, o := range f.offsets {
-					if row.Offset == o {
-						results <- row
-						break
-					}
-				}
-			}
-		}
+		// if f, ok := item.(*indexedField); ok {
+		// 	for rowReader.Scan() {
+		// 		row := rowReader.Read()
+		// 		for _, o := range f.offsets {
+		// 			if row.Offset == o {
+		// 				results <- row
+		// 				break
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 	}()
 
@@ -164,7 +165,7 @@ func (s *indexScan) optimize(engine *Engine, env *ExecutionEnvironment) executab
 
 type evalContext struct {
 	env  *ExecutionEnvironment
-	data []string
+	data []interface{}
 }
 
 type nilEvalContext struct{}
@@ -209,28 +210,29 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 			}
 		}()
 
-		// Materialize the inner dataset, ideally filter
-		innerRows := make([][]string, 0)
-		for i := range innerStatement.Rows {
-			innerRows = append(innerRows, i.Data)
-		}
+		// TODO: fixme
+		// // Materialize the inner dataset, ideally filter
+		// innerRows := make([][]string, 0)
+		// for i := range innerStatement.Rows {
+		// 	innerRows = append(innerRows, i.Data)
+		// }
 
-		// Cartesian product
-		for o := range outerStatement.Rows {
-			for _, i := range innerRows {
-				row := append(append([]string{}, o.Data...), i...)
+		// // Cartesian product
+		// for o := range outerStatement.Rows {
+		// 	for _, i := range innerRows {
+		// 		row := append(append([]interface{}, o.Data...), i...)
 
-				if s.filter != nil && ast.Evaluate(s.filter, &evalContext{env: env, data: row}).Value != true {
-					continue
-				}
+		// 		if s.filter != nil && ast.Evaluate(s.filter, &evalContext{env: env, data: row}).Value != true {
+		// 			continue
+		// 		}
 
-				results <- Row{
-					Data:    row,
-					Offset:  0,
-					IsValid: false,
-				}
-			}
-		}
+		// 		results <- Row{
+		// 			Data:    row,
+		// 			Offset:  0,
+		// 			IsValid: false,
+		// 		}
+		// 	}
+		// }
 	}()
 
 	return &ResultSet{

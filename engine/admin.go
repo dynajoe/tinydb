@@ -30,8 +30,9 @@ func (e *Engine) GetTableDefinition(name string) (*TableDefinition, error) {
 	}
 
 	var cols []ColumnDefinition
-	for _, c := range stmt.(*ast.CreateTableStatement).Columns {
+	for i, c := range stmt.(*ast.CreateTableStatement).Columns {
 		cols = append(cols, ColumnDefinition{
+			Offset:     i,
 			Name:       c.Name,
 			Type:       storage.SQLTypeFromString(c.Type),
 			PrimaryKey: c.PrimaryKey,

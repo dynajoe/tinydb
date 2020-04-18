@@ -1,16 +1,12 @@
 package engine
 
 import (
-	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
-	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -118,26 +114,6 @@ type rowGenerator struct {
 	next      []string
 }
 
-func NewRowGenerator(reader *csv.Reader) *rowGenerator {
-	return &rowGenerator{csvReader: reader}
-}
-
-func (g *rowGenerator) Scan() bool {
-	data, err := g.csvReader.Read()
-
-	if err == io.EOF || err != nil {
-		return false
-	}
-
-	g.next = data
-	return true
-}
-
-func (g *rowGenerator) Read() Row {
-	offset, _ := strconv.ParseInt(g.next[0], 10, 64)
-	return Row{Data: g.next[1:], Offset: offset, IsValid: true}
-}
-
 // Execute runs a statement against the database engine
 func (e *Engine) Execute(text string) (*ResultSet, error) {
 	startingTime := time.Now().UTC()
@@ -193,37 +169,24 @@ func executeStatement(engine *Engine, statement ast.Statement) (*ResultSet, erro
 	}
 }
 
-func newTableScanner(config *Config, tableName string) (RowReader, error) {
-	csvFile, err := os.Open(filepath.Join(config.DataDir, tableName, "data.csv"))
-
-	if err != nil {
-		return nil, err
-	}
-
-	reader := bufio.NewReader(csvFile)
-	tableCsv := csv.NewReader(reader)
-
-	return NewRowGenerator(tableCsv), nil
-}
-
 func buildIndex(config *Config, job *pkJob) {
-	rowReader, err := newTableScanner(config, job.table.Name)
+	// rowReader, err := newTableScanner(config, job.table.Name)
 
-	if err != nil {
-		panic("unable to build index")
-	}
+	// if err != nil {
+	// 	panic("unable to build index")
+	// }
 
 	b := btree.New(5)
-	for rowReader.Scan() {
-		row := rowReader.Read()
-		b.Upsert(&indexedField{
-			value:   row.Data[job.fieldIndex],
-			offsets: []int64{row.Offset},
-		}, func(old, new btree.Item) {
-			newField := new.(*indexedField)
-			newField.offsets = append(old.(*indexedField).offsets, row.Offset)
-		})
-	}
+	// for rowReader.Scan() {
+	// 	row := rowReader.Read()
+	// 	b.Upsert(&indexedField{
+	// 		value:   row.Data[job.fieldIndex],
+	// 		offsets: []int64{row.Offset},
+	// 	}, func(old, new btree.Item) {
+	// 		newField := new.(*indexedField)
+	// 		newField.offsets = append(old.(*indexedField).offsets, row.Offset)
+	// 	})
+	// }
 
 	job.result = b
 }
