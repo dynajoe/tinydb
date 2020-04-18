@@ -102,6 +102,7 @@ func parseCreateTable(scanner TinyScanner) (*CreateTableStatement, error) {
 	)(scanner)
 
 	if ok {
+		createTableStatement.RawText = scanner.Text()
 		return &createTableStatement, nil
 	}
 
@@ -207,7 +208,7 @@ func parseSelect(scanner TinyScanner) (*SelectStatement, error) {
 				} else {
 					selectStatement.From = append(selectStatement.From, TableAlias{
 						Name:  tokens[0][0].Text,
-						Alias: tokens[0][0].Text,
+						Alias: "",
 					})
 				}
 			}),

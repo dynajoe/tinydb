@@ -1,57 +1,33 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/csv"
-	"errors"
 	"fmt"
+
 	"github.com/joeandaverde/tinydb/ast"
-	"os"
-	"path/filepath"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
+
+// TODO: this is to get things to compile, need to actually get auto incr key
+var keys = make(map[string]int)
+
+func nextKey(tableName string) int {
+	if _, ok := keys[tableName]; !ok {
+		keys[tableName] = 0
+	}
+	keys[tableName] = keys[tableName] + 1
+	return keys[tableName]
+}
 
 func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
 	engine.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
 
-	metadata, ok := engine.Tables[insertStatement.Table]
-
-	if !ok {
+	metadata, err := engine.GetTableDefinition(insertStatement.Table)
+	if err != nil {
 		return 0, nil, fmt.Errorf("unable to locate table %s", insertStatement.Table)
 	}
 
-	dataFilePath := filepath.Join(engine.Config.DataDir, insertStatement.Table, "data.csv")
-	dataFile, err := os.OpenFile(dataFilePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModePerm)
-
-	if err != nil {
-		return 0, nil, err
-	}
-
-	defer func() {
-		if closeErr := dataFile.Close(); closeErr != nil {
-			err = closeErr
-		}
-	}()
-
-	if err != nil {
-		return 0, nil, err
-	}
-
-	writer := bufio.NewWriter(dataFile)
-
-	defer func() {
-		if flushErr := writer.Flush(); flushErr != nil {
-			err = flushErr
-		}
-	}()
-
-	var values []string
-
-	fileInfo, _ := dataFile.Stat()
-	fileOffset := fileInfo.Size()
-	values = append(values, fmt.Sprintf("%d", fileOffset))
-
 	returningLookup := make(map[string]int)
-	returnValues := make([]string, len(insertStatement.Returning))
+	returnValues := make([]interface{}, len(insertStatement.Returning))
 
 	if len(insertStatement.Returning) > 0 {
 		for i, c := range insertStatement.Returning {
@@ -59,33 +35,53 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		}
 	}
 
-	for _, column := range metadata.Columns {
-		value := ast.Evaluate(insertStatement.Values[column.Name], nilEvalContext{})
-		valueString := fmt.Sprintf("%s", value)
-		values = append(values, valueString)
-
+	var fields []*storage.Field
+	addField := func(column ColumnDefinition, value interface{}) {
 		if k, ok := returningLookup[column.Name]; ok {
-			returnValues[k] = valueString
+			returnValues[k] = value
+		}
+		switch value.(type) {
+		case string:
+			if column.Type != storage.Text {
+				panic("type conversion not implemented")
+			}
+		case int:
+			if column.Type != storage.Integer {
+				panic("type conversion not implemented")
+			}
+		case byte:
+			if column.Type != storage.Byte {
+				panic("type conversion not implemented")
+			}
+		}
+		fields = append(fields, &storage.Field{
+			Type: column.Type,
+			Data: value,
+		})
+	}
+	rowID := nextKey(insertStatement.Table)
+	for _, column := range metadata.Columns {
+		expr, ok := insertStatement.Values[column.Name]
+		if !ok {
+			addField(column, column.DefaultValue())
+			continue
 		}
 
-		if index, ok := engine.Indexes[metadata.Name]; ok {
-			f := &indexedField{value: valueString, offsets: []int64{fileOffset}}
-
-			if column.PrimaryKey && index.Find(f) != nil {
-				return 0, EmptyResultSet(), errors.New("primary key violation")
-			}
-
-			r := index.Insert(f)
-			if r != nil {
-				oldField := r.(*indexedField)
-				oldField.offsets = append(oldField.offsets, fileOffset)
-			}
-		}
+		// TODO: this value type may need to be cast or asserted
+		v := ast.Evaluate(expr, nilEvalContext{})
+		addField(column, v.Value)
 	}
 
-	csvWriter := csv.NewWriter(writer)
+	rootPage, err := engine.Pager.Read(metadata.RootPage)
+	if err != nil {
+		return 0, nil, err
+	}
 
-	if err := csvWriter.Write(values); err != nil {
+	record := storage.NewRecord(rowID, fields)
+	if err := storage.WriteRecord(rootPage, record); err != nil {
+		return 0, nil, err
+	}
+	if err := engine.Pager.Write(rootPage); err != nil {
 		return 0, nil, err
 	}
 
@@ -96,7 +92,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}, nil
 }
 
-func rowsFromValues(rows ...[]string) <-chan Row {
+func rowsFromValues(rows ...[]interface{}) <-chan Row {
 	resultChan := make(chan Row, len(rows))
 
 	go func() {

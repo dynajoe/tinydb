@@ -1,40 +1,46 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/json"
-	"fmt"
 	"github.com/joeandaverde/tinydb/ast"
-	"os"
-	"path/filepath"
-	"strings"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*TableDefinition, error) {
-	tablePath := filepath.Join(engine.Config.DataDir, strings.ToLower(createStatement.TableName))
+	//tablePath := filepath.Join(engine.Config.DataDir, strings.ToLower(createStatement.TableName))
 
-	if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("table already exists")
-	}
+	// // TODO: lookup in master table
+	// if _, err := os.Stat(tablePath); !createStatement.IfNotExists && !os.IsNotExist(err) {
+	// 	return nil, fmt.Errorf("table already exists")
+	// }
 
-	// The table doesn't exist, proceed.
-	if err := os.MkdirAll(tablePath, os.ModePerm); err != nil {
-		return nil, err
-	}
-
-	f, err := os.Create(filepath.Join(tablePath, "./metadata.json"))
-
+	pageOne, err := engine.Pager.Read(1)
 	if err != nil {
 		return nil, err
 	}
+	// TODO: the recordKey should be an int from an auto index perhaps?
+	recordKey := int(pageOne.NumCells) + 1
 
-	w := bufio.NewWriter(f)
+	// Allocate a page for the new table
+	rootPage, err := engine.Pager.Allocate()
+	if err != nil {
+		return nil, err
+	}
+	// Update Page 1 with the new table record
+	tableRecord := storage.NewMasterTableRecord(recordKey, "table", createStatement.TableName,
+		createStatement.TableName, rootPage.PageNumber, createStatement.RawText)
+
+	if err := storage.WriteRecord(pageOne, tableRecord); err != nil {
+		return nil, err
+	}
+	if err := engine.Pager.Write(pageOne, rootPage); err != nil {
+		return nil, err
+	}
 
 	var columnDefinitions []ColumnDefinition
 	for i, c := range createStatement.Columns {
 		columnDefinitions = append(columnDefinitions, ColumnDefinition{
 			Name:       c.Name,
-			Type:       c.Type,
+			Type:       storage.SQLTypeFromString(c.Type),
 			Offset:     i,
 			PrimaryKey: c.PrimaryKey,
 		})
@@ -44,22 +50,6 @@ func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*Ta
 		Name:    createStatement.TableName,
 		Columns: columnDefinitions,
 	}
-
-	contents, err := json.Marshal(tableMetadata)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := w.Write(contents); err != nil {
-		return nil, err
-	}
-
-	if err := w.Flush(); err != nil {
-		return nil, err
-	}
-
-	_, err = os.Create(filepath.Join(tablePath, "./data.csv"))
 
 	return &tableMetadata, nil
 }

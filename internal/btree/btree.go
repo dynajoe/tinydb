@@ -123,7 +123,7 @@ func (s *children) truncate(index int) {
 	*s, toClear = (*s)[:index], (*s)[index:]
 
 	for len(toClear) > 0 {
-		// Write zero values and update slice
+		// WriteTo zero values and update slice
 		toClear = toClear[copy(toClear, nilChildren):]
 	}
 }
@@ -149,7 +149,7 @@ func (s *items) truncate(index int) {
 	*s, toClear = (*s)[:index], (*s)[index:]
 
 	for len(toClear) > 0 {
-		// Write zero values and update slice
+		// WriteTo zero values and update slice
 		toClear = toClear[copy(toClear, nilItems):]
 	}
 }
