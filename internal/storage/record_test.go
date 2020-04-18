@@ -11,7 +11,7 @@ import (
 func TestRecord_Write(t *testing.T) {
 	assert := require.New(t)
 	stringContent := "Databases"
-	h := NewRecord(1, []*Field{
+	h := NewRecord([]*Field{
 		{
 			Type: Integer,
 			Data: 23500,
@@ -31,7 +31,7 @@ func TestRecord_Write(t *testing.T) {
 	})
 
 	buf := bytes.Buffer{}
-	err := h.Write(&buf)
+	err := h.Write(&buf, 1)
 	assert.NoError(err)
 
 	expectedPrefix := []byte{
@@ -61,7 +61,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 	expectedText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et"
 	pageSize := 256
 	page := NewPage(2, uint16(pageSize))
-	record := NewRecord(5, []*Field{
+	record := NewRecord([]*Field{
 		{
 			Type: Integer,
 			Data: 1337,
@@ -72,7 +72,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 		},
 	})
 
-	err := WriteRecord(page, record)
+	err := WriteRecord(page, 5, record)
 	assert.NoError(err)
 
 	expectedCellBytes := []byte{
@@ -97,9 +97,9 @@ func TestNewMasterTableRecord(t *testing.T) {
 		0x6E, 0x02, 0x43, 0x52, 0x45, 0x41, 0x54, 0x45, 0x20, 0x54, 0x41, 0x42, 0x4C, 0x45, 0x20, 0x70,
 		0x65, 0x72, 0x73, 0x6F, 0x6E, 0x28, 0x6E, 0x61, 0x6D, 0x65, 0x20, 0x74, 0x65, 0x78, 0x74, 0x29}
 	masterTableRecord := NewMasterTableRecord(
-		1, "table", "person", "person", 2, "CREATE TABLE person(name text)")
+		"table", "person", "person", 2, "CREATE TABLE person(name text)")
 	buf := bytes.Buffer{}
-	err := masterTableRecord.Write(&buf)
+	err := masterTableRecord.Write(&buf, 1)
 	assert.NoError(err)
 	assert.Equal(expectedBytes, buf.Bytes())
 }
