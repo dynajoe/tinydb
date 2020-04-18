@@ -68,7 +68,7 @@ type (
 
 	ExecutionEnvironment struct {
 		ColumnLookup map[string]columnLookup
-		Tables       map[string]TableDefinition
+		Tables       map[string]*TableDefinition
 		Columns      []string
 		Indexes      map[string]*btree.BTree
 		Engine       *Engine
@@ -249,14 +249,22 @@ func loadTableDefinitions(config *Config) map[string]TableDefinition {
 
 func newExecutionEnvironment(engine *Engine, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
 	colLookup := make(map[string]columnLookup)
-	tableMetadata := make(map[string]TableDefinition)
-	allMetadata := make([]TableDefinition, len(tables))
+	tableMetadata := make(map[string]*TableDefinition)
+	allMetadata := make([]*TableDefinition, len(tables))
 	i := 0
 	for _, tableAlias := range tables {
-		metadata, _ := engine.Tables[tableAlias.Name]
-
+		tableName := tableAlias.Name
+		metadata, err := engine.GetTableDefinition(tableName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to locate table %s", tableName)
+		}
 		for _, c := range metadata.Columns {
-			colLookup[fmt.Sprintf("%s.%s", tableAlias.Alias, c.Name)] = columnLookup{
+			lookupKey := c.Name
+			if tableAlias.Alias != "" {
+				lookupKey = tableAlias.Name + "." + lookupKey
+			}
+
+			colLookup[lookupKey] = columnLookup{
 				index:  i,
 				alias:  tableAlias,
 				column: c,

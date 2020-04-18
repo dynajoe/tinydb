@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/context"
 )
 
+var readTimeoutSeconds int = -1
+
 func RowReader(p *MemPage) <-chan Record {
 	rowChan := make(chan Record)
 	go func() {
@@ -17,9 +19,6 @@ func RowReader(p *MemPage) <-chan Record {
 		if p.PageNumber == 1 {
 			offset = offset + 100
 		}
-
-		// TODO: Should have a configuration read timeout
-		readTimeout, _ := context.WithTimeout(context.Background(), time.Second*5)
 
 		// TODO: are there gaps in the list?
 		reader := bytes.NewReader(p.Data[offset : uint16(offset)+p.NumCells*2])
@@ -34,9 +33,14 @@ func RowReader(p *MemPage) <-chan Record {
 				panic(err.Error())
 			}
 
+			ctx := context.Background()
+			if readTimeoutSeconds > 0 {
+				ctx, _ = context.WithTimeout(ctx, time.Duration(readTimeoutSeconds)*time.Second)
+			}
+
 			select {
 			case rowChan <- record:
-			case <-readTimeout.Done():
+			case <-ctx.Done():
 				break
 			}
 		}

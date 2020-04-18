@@ -1,6 +1,7 @@
 package command
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -43,11 +44,13 @@ func (i *StartCommand) Run(args []string) int {
 	if err != nil {
 		return 1
 	}
-	_, err = db.Execute("SELECT * FROM company")
+	results, err := db.Execute("SELECT * FROM company WHERE name = 'hashicorp'")
 	if err != nil {
 		return 1
 	}
-
+	for r := range results.Rows {
+		fmt.Println(r.Data)
+	}
 	<-i.ShutDownCh
 	return 0
 }
