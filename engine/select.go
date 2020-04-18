@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/joeandaverde/tinydb/ast"
@@ -36,12 +35,12 @@ type nestedLoop struct {
 type indexScan struct {
 	index  *btree.BTree
 	value  string
-	table  TableDefinition
+	table  *TableDefinition
 	column ColumnDefinition
 }
 
 type sequenceScan struct {
-	table  TableDefinition
+	table  *TableDefinition
 	filter ast.Expression
 }
 
@@ -59,28 +58,23 @@ func EmptyResultSet() *ResultSet {
 }
 
 func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	tableName := s.table.Name
-	metadata, err := engine.GetTableDefinition(tableName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to locate table %s", tableName)
-	}
-	rootPage, err := engine.Pager.Read(metadata.RootPage)
+	rootPage, err := engine.Pager.Read(s.table.RootPage)
 	if err != nil {
 		return nil, err
 	}
-
-	rows := storage.RowReader(rootPage)
 	results := make(chan Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
 		defer close(results)
 		defer close(errorChan)
+		rows := storage.RowReader(rootPage)
+
 		for row := range rows {
-			mappedData := make([]interface{}, len(metadata.Columns))
+			mappedData := make([]interface{}, len(s.table.Columns))
 			// TODO: how do default values work
 			// How do primary keys work?
-			for i := range metadata.Columns {
+			for i := range s.table.Columns {
 				mappedData[i] = row.Fields[i].Data
 			}
 			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: mappedData}).Value != true {
