@@ -2,6 +2,7 @@ package engine
 
 import (
 	"github.com/joeandaverde/tinydb/ast"
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 const x = 0
@@ -75,7 +76,7 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []instruction {
 		{OpMakeRecord, 1, 5, 6, x},
 
 		// Acquire a rowid for the new record, store in [Reg 7]
-		{OpRowID, 7, x, x, x},
+		{OpRowID, 0, 7, x, x},
 
 		// Insert record to [Cur 0], record from [Reg 6], key from [Reg 7]
 		{OpInsert, 0, 6, 7, x},
@@ -132,6 +133,72 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []instruction {
 // |    9 | Transaction |  0 |  1 |  7 | 0         | 01 |         |
 // |   10 | Goto        |  0 |  1 |  0 |           | 00 |         |
 // +------+-------------+----+----+----+-----------+----+---------+
-func InsertInstructions(stmt *ast.InsertStatement) []instruction {
-	return nil
+func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
+	table, err := e.GetTableDefinition(stmt.Table)
+	if err != nil {
+		return nil
+	}
+
+	regRootPage := 0
+	colCount := len(table.Columns)
+	cursorIndex := 0
+	rowIdReg := regRootPage + 1
+	regStartCol := rowIdReg + 1
+	regColIdx := regStartCol
+
+	// Generate ops to load registers with column values
+	var fields []instruction
+	addField := func(column ColumnDefinition, value interface{}) {
+		// Supplied value and column type must match up
+		switch v := value.(type) {
+		case string:
+			if column.Type != storage.Text {
+				panic("type conversion not implemented")
+			}
+			fields = append(fields, instruction{OpString, len(v), regColIdx, x, v})
+		case int:
+			if column.Type != storage.Integer {
+				panic("type conversion not implemented")
+			}
+			fields = append(fields, instruction{OpInteger, v, regColIdx, x, x})
+		case byte:
+			if column.Type != storage.Byte {
+				panic("type conversion not implemented")
+			}
+			fields = append(fields, instruction{OpInteger, int(v), regColIdx, x, x})
+		case nil:
+			fields = append(fields, instruction{OpNull, x, regColIdx, x, x})
+		default:
+			panic("unsupported type")
+		}
+
+		regColIdx = regColIdx + 1
+	}
+
+	for _, column := range table.Columns {
+		expr, ok := stmt.Values[column.Name]
+		if !ok {
+			addField(column, column.DefaultValue())
+			continue
+		}
+
+		// TODO: this value type may need to be cast or asserted
+		v := ast.Evaluate(expr, nilEvalContext{})
+		addField(column, v.Value)
+	}
+
+	instructions := append([]instruction{
+		{OpInteger, table.RootPage, regRootPage, x, x},
+		{OpOpenWrite, cursorIndex, regRootPage, colCount, x},
+		{OpRowID, cursorIndex, rowIdReg, x, x},
+	}, fields...)
+
+	regNewRecord := regColIdx + 1
+	instructions = append(instructions, []instruction{
+		{OpMakeRecord, regStartCol, colCount, regNewRecord, x},
+		{OpInsert, cursorIndex, regNewRecord, rowIdReg, x},
+		{OpHalt, x, x, x, x},
+	}...)
+
+	return instructions
 }

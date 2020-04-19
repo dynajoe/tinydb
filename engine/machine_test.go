@@ -39,7 +39,7 @@ func (s *VMTestSuite) TestSimple() {
 	sql := "select * from foo"
 	instructions := []instruction{
 		{OpInteger, 1, 0, 0, 0},
-		{OpString, len(sql), 1, 0, sql},
+		{OpString, len(sql), 1, x, sql},
 		{OpNull, 0, 2, 0, 0},
 		{OpResultRow, 0, 3, 0, 0},
 		{OpInteger, 2, 0, 0, 0},
@@ -116,8 +116,20 @@ func (s *VMTestSuite) TestInsert() {
 	insertStmt, ok := stmt.(*ast.InsertStatement)
 	s.True(ok)
 
-	instructions := InsertInstructions(insertStmt)
+	instructions := InsertInstructions(s.engine, insertStmt)
 	program := NewProgram(s.engine, instructions)
-	program.Run()
-	s.Fail("no assertions yet")
+	err = program.Run()
+	s.NoError(err)
+
+	// Ensure the row was inserted
+	result, err := s.engine.Execute("SELECT * FROM company")
+	s.NoError(err)
+	select {
+	case <-time.After(time.Second):
+		s.Fail("test timeout")
+	case row := <-result.Rows:
+		s.EqualValues(row.Data[0], 99)
+		s.Equal(row.Data[1], "hashicorp")
+		s.Nil(row.Data[2])
+	}
 }
