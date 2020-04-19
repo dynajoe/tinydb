@@ -34,7 +34,7 @@ func main() {
 		return 0, data, bufio.ErrFinalToken
 	}
 
-	dbEngine := engine.Start(".")
+	dbEngine := engine.Start(engine.NewConfig("."))
 
 	scanner.Split(onSemicolon)
 	for scanner.Scan() {

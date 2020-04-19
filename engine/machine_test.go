@@ -22,7 +22,7 @@ func (s *VMTestSuite) SetupTest() {
 	if err != nil {
 		s.Error(err)
 	}
-	s.engine = Start(tempDir)
+	s.engine = Start(NewConfig(tempDir))
 }
 
 func (s *VMTestSuite) TearDownTest() {
