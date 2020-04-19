@@ -43,7 +43,8 @@ const (
 	// P2 - count of cols
 	// P3 - store record in this register
 	OpMakeRecord
-	// P1 - page
+	// P1 - cursor for table to get rowid
+	// P2 - write rowid to this register
 	OpRowID
 	// P1 - cursor
 	// P2 - register containing the record
@@ -267,6 +268,9 @@ func (p *program) step() int {
 		if err != nil {
 			panic("unable to allocate page for table")
 		}
+		if err := p.engine.Pager.Write(rootPage); err != nil {
+			panic("unable to persist new table page")
+		}
 		writeInt(p.regs[i.p1], rootPage.PageNumber)
 	case OpMakeRecord:
 		startReg := i.p1
@@ -314,7 +318,8 @@ func (p *program) step() int {
 		destReg.typ = RegRecord
 		destReg.data = storage.NewRecord(fields)
 	case OpRowID:
-		writeInt(p.regs[i.p1], nextKey("master"))
+		// cursor := p.regs[i.p1]
+		writeInt(p.regs[i.p2], nextKey("master"))
 	case OpInsert:
 		cursor := p.cursors[i.p1]
 		record := p.regs[i.p2].data.(storage.Record)
