@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"encoding/binary"
-
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
@@ -93,7 +91,7 @@ type instruction struct {
 	p1 int
 	p2 int
 	p3 int
-	p4 int
+	p4 interface{}
 }
 
 type program struct {
@@ -107,8 +105,9 @@ type program struct {
 	results      chan []interface{}
 }
 
-func NewProgram(e *Engine, i []instruction, s []string) *program {
-	regs := make([]*register, 5)
+func NewProgram(e *Engine, i []instruction) *program {
+	// TODO: Make this resizable
+	regs := make([]*register, 10)
 	for i := range regs {
 		regs[i] = &register{
 			typ:  RegUnspecified,
@@ -117,11 +116,10 @@ func NewProgram(e *Engine, i []instruction, s []string) *program {
 	}
 
 	return &program{
-		cursors:      nil,
+		cursors:      make([]*storage.Cursor, 5),
 		engine:       e,
 		instructions: i,
 		pc:           0,
-		strings:      s,
 		regs:         regs,
 		results:      make(chan []interface{}),
 	}
@@ -156,9 +154,9 @@ func (p *program) step() int {
 		writeInt(p.regs[r], v)
 	case OpString:
 		r := i.p2
-		s := p.strings[i.p3]
+		s := i.p4.(string)
 		reg := p.regs[r]
-		reg.data = []byte(s)
+		reg.data = s
 		reg.typ = RegString
 	case OpNull:
 		r := i.p2
@@ -221,14 +219,14 @@ func (p *program) step() int {
 		}
 		p.cursors[cursor] = f
 	case OpOpenWrite:
-		cursor := i.p1
-		pageNo := i.p2
+		cursorIndex := i.p1
+		pageNo := p.regs[i.p2].data.(int)
 		// cols := instruction.params[2]
 		f, err := p.engine.Pager.OpenWrite(pageNo)
 		if err != nil {
 			panic("open write error")
 		}
-		p.cursors[cursor] = f
+		p.cursors[cursorIndex] = f
 	case OpClose:
 		cursor := p.cursors[i.p1]
 		p.engine.Pager.CloseCursor(cursor)
@@ -316,21 +314,19 @@ func (p *program) step() int {
 	case OpRowID:
 		writeInt(p.regs[i.p1], nextKey("master"))
 	case OpInsert:
-		// cursor := p.cursors[i.p1]
-		// record := p.regs[i.p2].data.(storage.Record)
-		// key := p.regs[i.p3].data.(int)
-		// write data to cursor
-		// probably need to seek to page where the cell should be written based on the key
-		// write data and header
+		cursor := p.cursors[i.p1]
+		record := p.regs[i.p2].data.(storage.Record)
+		key := p.regs[i.p3].data.(int)
+		if err := cursor.Insert(key, record); err != nil {
+			panic("error performing insert")
+		}
 	}
 
 	return 0
 }
 
 func writeInt(reg *register, v int) {
-	data := make([]byte, 4)
-	binary.BigEndian.PutUint32(data, uint32(v))
-	reg.data = data
+	reg.data = v
 	reg.typ = RegInt32
 }
 

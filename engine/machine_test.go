@@ -6,23 +6,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/joeandaverde/tinydb/ast"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestSimple(t *testing.T) {
-	assert := assert.New(t)
+type VMTestSuite struct {
+	suite.Suite
+	tempDir string
+	engine  *Engine
+}
 
-	testDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
+func (s *VMTestSuite) SetupTest() {
+	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
+	s.tempDir = tempDir
 	if err != nil {
-		t.Error(err)
+		s.Error(err)
 	}
-	defer os.RemoveAll(testDir)
+	s.engine = Start(tempDir)
+}
 
-	engine := Start(testDir)
-	strings := []string{"select * from foo"}
+func (s *VMTestSuite) TearDownTest() {
+	if s.tempDir != "" {
+		_ = os.RemoveAll(s.tempDir)
+	}
+}
+
+func TestVMTestSuite(t *testing.T) {
+	suite.Run(t, new(VMTestSuite))
+}
+
+func (s *VMTestSuite) TestSimple() {
+	sql := "select * from foo"
 	instructions := []instruction{
 		{OpInteger, 1, 0, 0, 0},
-		{OpString, len(strings[0]), 1, 0, 0},
+		{OpString, len(sql), 1, 0, sql},
 		{OpNull, 0, 2, 0, 0},
 		{OpResultRow, 0, 3, 0, 0},
 		{OpInteger, 2, 0, 0, 0},
@@ -36,7 +53,7 @@ func TestSimple(t *testing.T) {
 		{OpHalt, 0, 0, 0, 0},
 	}
 
-	testProgram := NewProgram(engine, instructions, strings)
+	testProgram := NewProgram(s.engine, instructions)
 	go testProgram.Run()
 
 	type testrow struct {
@@ -50,7 +67,7 @@ outer:
 	for {
 		select {
 		case <-time.After(time.Second):
-			assert.Fail("row timeout")
+			s.Fail("row timeout")
 		case r := <-testProgram.results:
 			if r == nil {
 				break outer
@@ -63,10 +80,27 @@ outer:
 		}
 	}
 
-	assert.Len(results, 5)
+	s.Len(results, 5)
 	for i, r := range results {
-		assert.Equal(i+1, r.id)
-		assert.Equal(strings[0], r.sql)
-		assert.Nil(r.null)
+		s.Equal(i+1, r.id)
+		s.Equal(sql, r.sql)
+		s.Nil(r.null)
 	}
+}
+
+func (s *VMTestSuite) TestCreateTable() {
+	createSQL := "CREATE TABLE company (company_id int PRIMARY KEY, company_name text);"
+	stmt, err := ast.Parse(createSQL)
+	s.NoError(err)
+
+	createTableStatement, ok := stmt.(*ast.CreateTableStatement)
+	s.True(ok)
+
+	instructions := CreateTableInstructions(createTableStatement)
+	program := NewProgram(s.engine, instructions)
+	program.Run()
+
+	tableDefinition, err := s.engine.GetTableDefinition("company")
+	s.NoError(err)
+	s.Len(tableDefinition.Columns, 2)
 }
