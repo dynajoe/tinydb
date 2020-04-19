@@ -125,13 +125,13 @@ func NewProgram(e *Engine, i []instruction) *program {
 	}
 }
 
-func (p *program) Run() {
+func (p *program) Run() error {
 	defer close(p.results)
 
 	for p.pc < len(p.instructions) {
 		nextPc := p.step()
 		if p.halted {
-			return
+			return nil
 		}
 		if nextPc > 0 {
 			p.pc = nextPc
@@ -139,6 +139,8 @@ func (p *program) Run() {
 		}
 		p.pc = p.pc + 1
 	}
+
+	return nil
 }
 
 func (p *program) step() int {

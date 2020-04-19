@@ -65,7 +65,7 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 		_ = os.RemoveAll(testDir)
 	}
 
-	db := engine.Start(testDir)
+	db := engine.Start(engine.NewConfig(testDir))
 
 	if _, err := db.Execute(createTableStatement); err != nil {
 		return nil, cleanUp, err

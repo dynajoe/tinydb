@@ -48,8 +48,8 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 
 	configDecoder := yaml.NewDecoder(configFile)
-	config := engine.Config{}
-	if err := configDecoder.Decode(&config); err != nil {
+	config := &engine.Config{}
+	if err := configDecoder.Decode(config); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error parsing config file: %s", err.Error())
 		return 1
 	}
@@ -61,7 +61,7 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 	defer ln.Close()
 
-	dbEngine := engine.Start(config.DataDir)
+	dbEngine := engine.Start(config)
 
 	for {
 		conn, err := ln.Accept()
