@@ -55,6 +55,7 @@ const (
 	tsqlString
 	tsqlNumber
 	tsqlBoolean
+	tsqlNull
 )
 
 type TinyDBItem struct {
@@ -182,6 +183,8 @@ func lexAlphaNumeric(l *TinyLexer) stateFn {
 			l.emit(tsqlValues)
 		} else if strings.ToUpper(value) == "TRUE" || strings.ToUpper(value) == "FALSE" {
 			l.emit(tsqlBoolean)
+		} else if strings.ToUpper(value) == "NULL" {
+			l.emit(tsqlNull)
 		} else {
 			l.emit(tsqlIdentifier)
 		}

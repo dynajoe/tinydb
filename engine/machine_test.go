@@ -104,3 +104,20 @@ func (s *VMTestSuite) TestCreateTable() {
 	s.NoError(err)
 	s.Len(tableDefinition.Columns, 2)
 }
+
+func (s *VMTestSuite) TestInsert() {
+	_, err := s.engine.Execute("CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
+	s.NoError(err)
+
+	insertSQL := "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)"
+	stmt, err := ast.Parse(insertSQL)
+	s.NoError(err)
+
+	insertStmt, ok := stmt.(*ast.InsertStatement)
+	s.True(ok)
+
+	instructions := InsertInstructions(insertStmt)
+	program := NewProgram(s.engine, instructions)
+	program.Run()
+	s.Fail("no assertions yet")
+}

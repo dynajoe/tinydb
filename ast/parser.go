@@ -362,6 +362,14 @@ func parseTerm(nodify nodifyExpression) Parser {
 				})
 			}
 		}),
+		requiredToken(tsqlNull, func(token []TinyDBItem) {
+			if nodify != nil {
+				nodify(&BasicLiteral{
+					Value:     "",
+					TokenType: token[0].Token,
+				})
+			}
+		}),
 	}, nil)
 }
 
