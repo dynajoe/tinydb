@@ -84,3 +84,54 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []instruction {
 
 	return instructions
 }
+
+// InsertInstructions generates machine code for insert statement
+//
+// SQLite Example
+//
+// Based on: CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text)
+//
+// EXPLAIN INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)
+// +------+-------------+------+----+----+--------------------+----+---------+
+// | addr |   opcode    |  p1  | p2 | p3 |         p4         | p5 | comment |
+// +------+-------------+------+----+----+--------------------+----+---------+
+// |    0 | Init        |    0 | 17 |  0 |                    | 00 |         |
+// |    1 | OpenWrite   |    0 |  2 |  0 | 3                  | 00 |         |
+// |    2 | OpenWrite   |    1 |  3 |  0 | k(2,,)             | 00 |         |
+// |    3 | NewRowid    |    0 |  1 |  0 |                    | 00 |         |
+// |    4 | Integer     |   99 |  2 |  0 |                    | 00 |         |
+// |    5 | String8     |    0 |  3 |  0 | hashicorp          | 00 |         |
+// |    6 | Null        |    0 |  4 |  0 |                    | 00 |         |
+// |    7 | Affinity    |    2 |  3 |  0 | DBB                | 00 |         |
+// |    8 | SCopy       |    2 |  6 |  0 |                    | 00 |         |
+// |    9 | IntCopy     |    1 |  7 |  0 |                    | 00 |         |
+// |   10 | MakeRecord  |    6 |  2 |  5 |                    | 00 |         |
+// |   11 | NoConflict  |    1 | 13 |  6 | 1                  | 00 |         |
+// |   12 | Halt        | 1555 |  2 |  0 | company.company_id | 02 |         |
+// |   13 | IdxInsert   |    1 |  5 |  6 | 2                  | 10 |         |
+// |   14 | MakeRecord  |    2 |  3 |  8 |                    | 00 |         |
+// |   15 | Insert      |    0 |  8 |  1 | company            | 39 |         |
+// |   16 | Halt        |    0 |  0 |  0 |                    | 00 |         |
+// |   17 | Transaction |    0 |  1 |  5 | 0                  | 01 |         |
+// |   18 | Goto        |    0 |  1 |  0 |                    | 00 |         |
+// +------+-------------+------+----+----+--------------------+----+---------+
+//
+// Without Primary Key
+// +------+-------------+----+----+----+-----------+----+---------+
+// | addr |   opcode    | p1 | p2 | p3 |    p4     | p5 | comment |
+// +------+-------------+----+----+----+-----------+----+---------+
+// |    0 | Init        |  0 |  9 |  0 |           | 00 |         |
+// |    1 | OpenWrite   |  0 |  2 |  0 | 3         | 00 |         |
+// |    2 | NewRowid    |  0 |  1 |  0 |           | 00 |         |
+// |    3 | Integer     | 99 |  2 |  0 |           | 00 |         |
+// |    4 | String8     |  0 |  3 |  0 | hashicorp | 00 |         |
+// |    5 | Null        |  0 |  4 |  0 |           | 00 |         |
+// |    6 | MakeRecord  |  2 |  3 |  5 | DBB       | 00 |         |
+// |    7 | Insert      |  0 |  5 |  1 | company   | 39 |         |
+// |    8 | Halt        |  0 |  0 |  0 |           | 00 |         |
+// |    9 | Transaction |  0 |  1 |  7 | 0         | 01 |         |
+// |   10 | Goto        |  0 |  1 |  0 |           | 00 |         |
+// +------+-------------+----+----+----+-----------+----+---------+
+func InsertInstructions(stmt *ast.InsertStatement) []instruction {
+	return nil
+}
