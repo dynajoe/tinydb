@@ -202,3 +202,28 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 
 	return instructions
 }
+
+// SelectInstructions generates instructions from a select statement to generate rows
+//
+// Query: SELECT * from company WHERE company_name = 'joe'
+// +------+-------------+----+----+----+----------+----+---------+
+// | addr |   opcode    | p1 | p2 | p3 |    p4    | p5 | comment |
+// +------+-------------+----+----+----+----------+----+---------+
+// |    0 | Init        |  0 | 11 |  0 |          | 00 |         |
+// |    1 | OpenRead    |  0 |  2 |  0 | 3        | 00 |         |
+// |    2 | Rewind      |  0 | 10 |  0 |          | 00 |         |
+// |    3 | Column      |  0 |  1 |  1 |          | 00 |         |
+// |    4 | Ne          |  2 |  9 |  1 | (BINARY) | 52 |         |
+// |    5 | Column      |  0 |  0 |  3 |          | 00 |         |
+// |    6 | Column      |  0 |  1 |  4 |          | 00 |         |
+// |    7 | Column      |  0 |  2 |  5 |          | 00 |         |
+// |    8 | ResultRow   |  3 |  3 |  0 |          | 00 |         |
+// |    9 | Next        |  0 |  3 |  0 |          | 01 |         |
+// |   10 | Halt        |  0 |  0 |  0 |          | 00 |         |
+// |   11 | Transaction |  0 |  0 |  7 | 0        | 01 |         |
+// |   12 | String8     |  0 |  2 |  0 | joe      | 00 |         |
+// |   13 | Goto        |  0 |  1 |  0 |          | 00 |         |
+// +------+-------------+----+----+----+----------+----+---------+
+func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
+	return nil
+}
