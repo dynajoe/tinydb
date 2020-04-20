@@ -11,6 +11,7 @@ import (
 type SQLType uint32
 
 const (
+	Null    = 0
 	Byte    = 1
 	Integer = 4
 	Text    = 28
@@ -38,19 +39,17 @@ type Field struct {
 // Record is a set of fields
 type Record struct {
 	Fields []*Field
-	Key    int
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(key int, fields []*Field) Record {
+func NewRecord(fields []*Field) Record {
 	return Record{
-		Key:    key,
 		Fields: fields,
 	}
 }
 
 // Write writes a record to the specified writer
-func (r Record) Write(bs io.ByteWriter) error {
+func (r Record) Write(bs io.ByteWriter, key int) error {
 	// Build the header [varint header size..., cols...]
 	var colBuf bytes.Buffer
 	for _, f := range r.Fields {
@@ -111,7 +110,7 @@ func (r Record) Write(bs io.ByteWriter) error {
 	if _, err := WriteVarint(bs, uint64(len(recordBuffer.Bytes()))); err != nil {
 		return err
 	}
-	if _, err := WriteVarint(bs, uint64(r.Key)); err != nil {
+	if _, err := WriteVarint(bs, uint64(key)); err != nil {
 		return err
 	}
 	for _, b := range recordBuffer.Bytes() {
@@ -123,9 +122,9 @@ func (r Record) Write(bs io.ByteWriter) error {
 	return nil
 }
 
-func WriteRecord(p *MemPage, r Record) error {
+func WriteRecord(p *MemPage, key int, r Record) error {
 	buf := bytes.Buffer{}
-	if err := r.Write(&buf); err != nil {
+	if err := r.Write(&buf, key); err != nil {
 		return err
 	}
 
@@ -152,8 +151,8 @@ func WriteRecord(p *MemPage, r Record) error {
 	return nil
 }
 
-func NewMasterTableRecord(key int, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
-	return NewRecord(key, []*Field{
+func NewMasterTableRecord(typeName string, name string, tableName string, rootPage int, sqlText string) Record {
+	return NewRecord([]*Field{
 		{
 			Type: Text,
 			// type: text
@@ -189,7 +188,7 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 		return Record{}, err
 	}
 
-	key, _, err := ReadVarint(r)
+	_, _, err = ReadVarint(r) // Skip ROWID
 	if err != nil {
 		return Record{}, err
 	}
@@ -255,7 +254,6 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 	}
 
 	return Record{
-		Key:    int(key),
 		Fields: fields,
 	}, nil
 }

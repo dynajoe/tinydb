@@ -77,8 +77,8 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		return 0, nil, err
 	}
 
-	record := storage.NewRecord(rowID, fields)
-	if err := storage.WriteRecord(rootPage, record); err != nil {
+	record := storage.NewRecord(fields)
+	if err := storage.WriteRecord(rootPage, rowID, record); err != nil {
 		return 0, nil, err
 	}
 	if err := engine.Pager.Write(rootPage); err != nil {
