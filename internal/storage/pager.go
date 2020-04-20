@@ -100,6 +100,28 @@ func NewPage(page int, pageSize uint16) *MemPage {
 	}
 }
 
+func (p *Pager) OpenRead(page int) (*Cursor, error) {
+	return p.open(page, CURSOR_READ)
+}
+
+func (p *Pager) OpenWrite(page int) (*Cursor, error) {
+	return p.open(page, CURSOR_WRITE)
+}
+
+func (p *Pager) open(page int, typ CursorType) (*Cursor, error) {
+	return &Cursor{
+		typ:        typ,
+		start:      p.pageOffset(page),
+		pageNumber: page,
+		cellIndex:  0,
+		pager:      p,
+	}, nil
+}
+
+func (p *Pager) CloseCursor(c *Cursor) {
+
+}
+
 // Read reads a full page from disk
 func (p *Pager) Read(page int) (*MemPage, error) {
 	p.mu.RLock()

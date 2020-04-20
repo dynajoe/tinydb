@@ -52,18 +52,20 @@ type (
 
 	// Config describes the configuration for the database
 	Config struct {
-		DataDir string `yaml:"data_directory"`
-		Addr    string `yaml:"listen"`
+		DataDir           string `yaml:"data_directory"`
+		Addr              string `yaml:"listen"`
+		UseVirtualMachine bool   `yaml:"use_virtual_machine""`
 	}
 
 	// Engine holds metadata and indexes about the database
 	Engine struct {
-		Indexes   map[string]*btree.BTree
-		Tables    map[string]TableDefinition
-		Log       *log.Logger
-		Config    *Config
-		Pager     *storage.Pager
-		adminLock sync.Mutex
+		Indexes           map[string]*btree.BTree
+		Tables            map[string]TableDefinition
+		Log               *log.Logger
+		Config            *Config
+		Pager             *storage.Pager
+		adminLock         sync.Mutex
+		useVirtualMachine bool
 	}
 
 	ExecutionEnvironment struct {
@@ -84,13 +86,17 @@ func (f *indexedField) Less(than btree.Item) bool {
 	return f.value < than.(*indexedField).value
 }
 
-// Start initializes a new TinyDb database engine
-func Start(basePath string) *Engine {
-	log.Infof("Starting database engine [DataDir: %s]", basePath)
-
-	config := &Config{
-		DataDir: basePath,
+func NewConfig(basePath string) *Config {
+	return &Config{
+		DataDir:           basePath,
+		Addr:              "",
+		UseVirtualMachine: true,
 	}
+}
+
+// Start initializes a new TinyDb database engine
+func Start(config *Config) *Engine {
+	log.Infof("Starting database engine [DataDir: %s]", config.DataDir)
 
 	tables := loadTableDefinitions(config)
 	indexes := buildIndexes(config, tables)
@@ -101,11 +107,12 @@ func Start(basePath string) *Engine {
 	}
 
 	return &Engine{
-		Tables:  tables,
-		Indexes: indexes,
-		Config:  config,
-		Log:     logger,
-		Pager:   pager,
+		Tables:            tables,
+		Indexes:           indexes,
+		Config:            config,
+		Log:               logger,
+		Pager:             pager,
+		useVirtualMachine: config.UseVirtualMachine,
 	}
 }
 
