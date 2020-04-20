@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"errors"
+
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
@@ -38,6 +40,8 @@ const (
 	OpInteger
 	OpString
 	OpNull
+	// P1 - register start
+	// P2 - # cols
 	OpResultRow
 	// P1 - register start
 	// P2 - count of cols
@@ -104,6 +108,7 @@ type program struct {
 	strings      []string
 	halted       bool
 	results      chan []interface{}
+	err          string
 }
 
 func NewProgram(e *Engine, i []instruction) *program {
@@ -131,6 +136,9 @@ func (p *program) Run() error {
 
 	for p.pc < len(p.instructions) {
 		nextPc := p.step()
+		if nextPc == -1 {
+			return errors.New(p.err)
+		}
 		if p.halted {
 			return nil
 		}
@@ -152,63 +160,62 @@ func (p *program) step() int {
 	case OpHalt:
 		p.halted = true
 	case OpInteger:
-		v := i.p1
-		r := i.p2
-		writeInt(p.regs[r], v)
+		p.writeInt(i.p2, i.p1)
 	case OpString:
 		r := i.p2
 		s := i.p4.(string)
-		reg := p.regs[r]
+		reg := p.reg(r)
 		reg.data = s
 		reg.typ = RegString
 	case OpNull:
 		r := i.p2
-		reg := p.regs[r]
+		reg := p.reg(r)
 		reg.data = nil
 		reg.typ = RegNull
 	case OpSCopy:
-		r1 := i.p1
-		r2 := i.p2
-		p.regs[r2] = p.regs[r1]
+		r1 := p.reg(i.p1)
+		r2 := p.reg(i.p2)
+		r2.data = r1.data
+		r2.typ = r1.typ
 	case OpEq:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if eq(a, b) {
 			return jmp
 		}
 	case OpLt:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if less(a, b) {
 			return jmp
 		}
 	case OpLe:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if less(a, b) || eq(a, b) {
 			return jmp
 		}
 	case OpGt:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if !less(a, b) && !eq(a, b) {
 			return jmp
 		}
 	case OpGe:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if !less(a, b) {
 			return jmp
 		}
 	case OpNe:
-		a := p.regs[i.p1]
+		a := p.reg(i.p1)
 		jmp := i.p2
-		b := p.regs[i.p3]
+		b := p.reg(i.p3)
 		if !eq(a, b) {
 			return jmp
 		}
@@ -218,16 +225,16 @@ func (p *program) step() int {
 		// cols := instruction.params[2]
 		f, err := p.engine.Pager.OpenRead(pageNo)
 		if err != nil {
-			panic("open read error")
+			return p.error("open read error")
 		}
 		p.cursors[cursor] = f
 	case OpOpenWrite:
 		cursorIndex := i.p1
-		pageNo := p.regs[i.p2].data.(int)
+		pageNo := p.reg(i.p2).data.(int)
 		// cols := instruction.params[2]
 		f, err := p.engine.Pager.OpenWrite(pageNo)
 		if err != nil {
-			panic("open write error")
+			return p.error("open write error")
 		}
 		p.cursors[cursorIndex] = f
 	case OpClose:
@@ -236,19 +243,19 @@ func (p *program) step() int {
 	case OpRewind:
 		cursor := p.cursors[i.p1]
 		if err := cursor.Rewind(); err != nil {
-			panic("error while rewinding cursor")
+			return p.error("error while rewinding cursor")
 		}
 	case OpColumn:
 		// cursor := p.cursors[i.p1]
 		// col := i.p2
-		// reg := p.regs[i.p3]
+		// reg := p.reg(i.p3)
 	case OpResultRow:
 		startReg := i.p1
 		colCount := i.p2
 		endReg := startReg + colCount - 1
 		var result []interface{}
 		for i := startReg; i <= endReg; i++ {
-			reg := p.regs[i]
+			reg := p.reg(i)
 			switch reg.typ {
 			case RegInt32:
 				result = append(result, reg.data.(int))
@@ -266,21 +273,21 @@ func (p *program) step() int {
 		// Allocate a page for the new table
 		rootPage, err := p.engine.Pager.Allocate()
 		if err != nil {
-			panic("unable to allocate page for table")
+			return p.error("unable to allocate page for table")
 		}
 		if err := p.engine.Pager.Write(rootPage); err != nil {
-			panic("unable to persist new table page")
+			return p.error("unable to persist new table page")
 		}
-		writeInt(p.regs[i.p1], rootPage.PageNumber)
+		p.writeInt(i.p1, rootPage.PageNumber)
 	case OpMakeRecord:
 		startReg := i.p1
 		colCount := i.p2
 		endReg := startReg + colCount - 1
-		destReg := p.regs[i.p3]
+		destReg := p.reg(i.p3)
 		var fields []*storage.Field
 
 		for i := startReg; i <= endReg; i++ {
-			reg := p.regs[i]
+			reg := p.reg(i)
 			switch reg.typ {
 			case RegInt32:
 				// TODO: this needs to be more sophisticated and handle signed ints appropriately
@@ -311,30 +318,50 @@ func (p *program) step() int {
 					Data: nil,
 				})
 			default:
-				panic("unsupported register type for record")
+				return p.error("unsupported register type for record")
 			}
 		}
 
 		destReg.typ = RegRecord
 		destReg.data = storage.NewRecord(fields)
 	case OpRowID:
-		// cursor := p.regs[i.p1]
-		writeInt(p.regs[i.p2], nextKey("master"))
+		// cursor := p.reg(i.p1)
+		p.writeInt(i.p2, nextKey("master"))
 	case OpInsert:
 		cursor := p.cursors[i.p1]
-		record := p.regs[i.p2].data.(storage.Record)
-		key := p.regs[i.p3].data.(int)
+		record := p.reg(i.p2).data.(storage.Record)
+		key := p.reg(i.p3).data.(int)
 		if err := cursor.Insert(key, record); err != nil {
-			panic("error performing insert")
+			return p.error("error performing insert")
 		}
 	}
 
 	return 0
 }
 
-func writeInt(reg *register, v int) {
-	reg.data = v
+func (p *program) error(message string) int {
+	p.err = message
+	return -1
+}
+
+func (p *program) reg(i int) *register {
+	if len(p.regs) <= i {
+		diff := len(p.regs) - i + 1
+		// Allocate some number of registers
+		for i := 0; i < diff; i++ {
+			p.regs = append(p.regs, &register{
+				typ:  RegUnspecified,
+				data: nil,
+			})
+		}
+	}
+	return p.regs[i]
+}
+
+func (p *program) writeInt(r int, v int) {
+	reg := p.reg(r)
 	reg.typ = RegInt32
+	reg.data = v
 }
 
 func less(a *register, b *register) bool {
