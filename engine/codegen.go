@@ -138,13 +138,20 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 	if err != nil {
 		return nil
 	}
-
+	regsUsed := 0
 	regRootPage := 0
 	colCount := len(table.Columns)
 	cursorIndex := 0
 	rowIdReg := regRootPage + 1
 	regStartCol := rowIdReg + 1
 	regColIdx := regStartCol
+
+	// If there's a returning statement build an easy lookup
+	var returnRegs []int
+	returningLookup := make(map[string]int)
+	for i, c := range stmt.Returning {
+		returningLookup[c] = i
+	}
 
 	// Generate ops to load registers with column values
 	var fields []instruction
@@ -171,7 +178,9 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 		default:
 			panic("unsupported type")
 		}
-
+		if _, ok := returningLookup[column.Name]; ok {
+			returnRegs = append(returnRegs, regColIdx)
+		}
 		regColIdx = regColIdx + 1
 	}
 
@@ -199,6 +208,20 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 		{OpInsert, cursorIndex, regNewRecord, rowIdReg, x},
 		{OpHalt, x, x, x, x},
 	}...)
+
+	regsUsed = regNewRecord + 1
+
+	if len(returnRegs) > 0 {
+		regReturnStart := regNewRecord + 1
+		for i, r := range returnRegs {
+			// Copy the original reg value to the new reg in order to be contiguous
+			instructions = append(instructions, instruction{OpSCopy, r, regReturnStart + i, x, x})
+		}
+		instructions = append(instructions, []instruction{
+			{OpResultRow, regReturnStart, len(returnRegs), x, x},
+		}...)
+		regsUsed = regsUsed + len(returnRegs)
+	}
 
 	return instructions
 }
