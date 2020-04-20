@@ -248,5 +248,36 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 // |   13 | Goto        |  0 |  1 |  0 |          | 00 |         |
 // +------+-------------+----+----+----+----------+----+---------+
 func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
+	table, err := e.GetTableDefinition(stmt.From[0].Name)
+	if err != nil {
+		return nil
+	}
+	regRootPage := 0
+	// TODO: need to generate these out of order and do simple arithmetic to get valid addresses
+	haltInstructionAddr := 1001010
+	readCursor := 0
+
+	instructions := []instruction{
+		{OpInteger, table.RootPage, regRootPage, x, x},
+		{OpOpenRead, readCursor, regRootPage, len(table.Columns), x},
+		{OpRewind, readCursor, haltInstructionAddr, x, x},
+	}
+
+	// Produce a Row
+	evaluateRowAddr := len(instructions) - 1
+	// Load all columns into registers
+	regColStartIdx := regRootPage + 1
+	for i := range table.Columns {
+		instructions = append(instructions, instruction{OpColumn, i, regColStartIdx + i, x, x})
+	}
+
+	instructions = append(instructions, instruction{OpResultRow, regColStartIdx, len(table.Columns), x, x})
+
+	// Repeat or halt
+	instructions = append(instructions, []instruction{
+		{OpNext, readCursor, evaluateRowAddr, x, x},
+		{OpHalt, x, x, x, x},
+	}...)
+
 	return nil
 }

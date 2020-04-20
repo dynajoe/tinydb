@@ -24,7 +24,13 @@ const (
 	// P3 - col count (0 if opening index)
 	OpOpenWrite
 	OpClose
+	// Point to first entry in btree
+	// P1 - Cursor
+	// P2 - Jump address (if btree is empty)
 	OpRewind
+	// Read next cell in btree or jump to address
+	// P1 - Cursor
+	// P2 - Jump Address
 	OpNext
 	OpPrev
 	OpSeek
@@ -32,6 +38,9 @@ const (
 	OpSeekGe
 	OpSeekLt
 	OpSeekLe
+	// P1 - cursor
+	// P2 - column index (0 based)
+	// P3 - register for column value
 	OpColumn
 	OpKey
 	// Stores int in register
@@ -260,7 +269,7 @@ func (p *program) step() int {
 			case RegInt32:
 				result = append(result, reg.data.(int))
 			case RegBinary:
-				// TODO: shoud copy the buffer?
+				// TODO: should copy the buffer?
 				result = append(result, reg.data.([]byte))
 			case RegString:
 				result = append(result, reg.data.(string))
