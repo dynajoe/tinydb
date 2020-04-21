@@ -43,6 +43,8 @@ func (s *tinyScanner) Range(start int, end int) []TinyDBItem {
 	return s.items[start:end]
 }
 
+// Mark returns the position of the scanner and a function
+// to reset the scanner back to the position
 func (s *tinyScanner) Mark() (int, func()) {
 	position := s.position
 	committed := s.committed

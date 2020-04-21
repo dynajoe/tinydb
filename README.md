@@ -15,6 +15,7 @@
 #### Lexer / Tokenizer
 #### Parser combinators
 #### AST
+#### Descriptive errors
 ### Storage
 #### Binary format
 #### Internal/Leaf Pages
