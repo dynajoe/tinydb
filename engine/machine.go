@@ -232,7 +232,7 @@ func (p *program) step() int {
 		cursor := i.p1
 		pageNo := i.p2
 		// cols := instruction.params[2]
-		f, err := p.engine.Pager.OpenRead(pageNo)
+		f, err := storage.NewCursor(p.engine.Pager, storage.CURSOR_READ, pageNo)
 		if err != nil {
 			return p.error("open read error")
 		}
@@ -241,18 +241,34 @@ func (p *program) step() int {
 		cursorIndex := i.p1
 		pageNo := p.reg(i.p2).data.(int)
 		// cols := instruction.params[2]
-		f, err := p.engine.Pager.OpenWrite(pageNo)
+		f, err := storage.NewCursor(p.engine.Pager, storage.CURSOR_WRITE, pageNo)
 		if err != nil {
 			return p.error("open write error")
 		}
 		p.cursors[cursorIndex] = f
 	case OpClose:
 		cursor := p.cursors[i.p1]
-		p.engine.Pager.CloseCursor(cursor)
+		cursor.Close()
 	case OpRewind:
 		cursor := p.cursors[i.p1]
-		if err := cursor.Rewind(); err != nil {
-			return p.error("error while rewinding cursor")
+		jmpAddr := i.p2
+		hasRecords, err := cursor.Rewind()
+		if err != nil {
+			return p.error("error rewinding cursor")
+		}
+		if !hasRecords {
+			return jmpAddr
+		}
+	case OpNext:
+		cursor := p.cursors[i.p1]
+		jmpAddr := i.p2
+		// no more records in cursor
+		hasMore, err := cursor.Next()
+		if err != nil {
+			return p.error("error moving to next cell")
+		}
+		if !hasMore {
+			return jmpAddr
 		}
 	case OpColumn:
 		// cursor := p.cursors[i.p1]
