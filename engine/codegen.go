@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/joeandaverde/tinydb/ast"
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
@@ -254,13 +257,12 @@ func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
 	}
 	regRootPage := 0
 	// TODO: need to generate these out of order and do simple arithmetic to get valid addresses
-	haltInstructionAddr := 1001010
 	readCursor := 0
 
-	instructions := []instruction{
-		{OpInteger, table.RootPage, regRootPage, x, x},
-		{OpOpenRead, readCursor, regRootPage, len(table.Columns), x},
-		{OpRewind, readCursor, haltInstructionAddr, x, x},
+	instructions := []interface{}{
+		instruction{OpInteger, table.RootPage, regRootPage, x, x},
+		instruction{OpOpenRead, readCursor, regRootPage, len(table.Columns), x},
+		func(l labels) instruction { return instruction{OpRewind, readCursor, l["halt"], x, x} },
 	}
 
 	// Produce a Row
@@ -268,16 +270,50 @@ func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
 	// Load all columns into registers
 	regColStartIdx := regRootPage + 1
 	for i := range table.Columns {
-		instructions = append(instructions, instruction{OpColumn, i, regColStartIdx + i, x, x})
+		instructions = append(instructions, instruction{OpColumn, readCursor, i, regColStartIdx + i, x})
 	}
 
 	instructions = append(instructions, instruction{OpResultRow, regColStartIdx, len(table.Columns), x, x})
 
 	// Repeat or halt
-	instructions = append(instructions, []instruction{
-		{OpNext, readCursor, evaluateRowAddr, x, x},
-		{OpHalt, x, x, x, x},
+	instructions = append(instructions, []interface{}{
+		instruction{OpNext, readCursor, evaluateRowAddr, x, x},
+		lbl{"halt", instruction{OpHalt, x, x, x, x}},
 	}...)
 
-	return nil
+	return build(instructions)
+}
+
+type jmp func(labels) instruction
+
+type lbl struct {
+	name string
+	instruction
+}
+
+type labels map[string]int
+
+func build(items []interface{}) []instruction {
+	l := make(map[string]int)
+	for i, x := range items {
+		switch v := x.(type) {
+		case lbl:
+			l[v.name] = i
+		}
+	}
+
+	var instructions []instruction
+	for _, x := range items {
+		switch v := x.(type) {
+		case (func(labels) instruction):
+			instructions = append(instructions, v(l))
+		case instruction:
+			instructions = append(instructions, v)
+		case lbl:
+			instructions = append(instructions, v.instruction)
+		default:
+			panic(fmt.Sprintf("unexpected type %v", reflect.TypeOf(x)))
+		}
+	}
+	return instructions
 }

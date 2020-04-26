@@ -133,3 +133,31 @@ func (s *VMTestSuite) TestInsert() {
 		s.Nil(row.Data[2])
 	}
 }
+
+func (s *VMTestSuite) TestSelect() {
+	_, err := s.engine.Execute("CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
+	s.NoError(err)
+	_, err = s.engine.Execute("INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
+	s.NoError(err)
+
+	stmt, err := ast.Parse("SELECT * FROM company")
+	s.NoError(err)
+	selectStmt, ok := stmt.(*ast.SelectStatement)
+	s.True(ok)
+
+	instructions := SelectInstructions(s.engine, selectStmt)
+	program := NewProgram(s.engine, instructions)
+	go program.Run()
+
+	select {
+	case <-time.After(time.Second):
+		s.Fail("test timeout")
+	case row := <-program.results:
+		if row == nil {
+			s.FailNow("expected a row")
+		}
+		s.EqualValues(row[0], 99)
+		s.Equal(row[1], "hashicorp")
+		s.Nil(row[2])
+	}
+}

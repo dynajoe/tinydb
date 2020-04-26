@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
@@ -11,6 +12,7 @@ type op uint8
 // https://github.com/uchicago-cs/chidb/blob/master/src/libchidb/dbm-types.h
 const (
 	OpNoOp op = iota
+	OpInit
 	// Opens B-Tree Rooted at page n
 	// and stores cursor in c
 	// P1 - cursor (c)
@@ -20,7 +22,7 @@ const (
 	// Opens B-Tree Rooted at page n
 	// and stores cursor in c
 	// P1 - cursor (c)
-	// P2 - page number (n)
+	// P2 - page number register (n)
 	// P3 - col count (0 if opening index)
 	OpOpenWrite
 	OpClose
@@ -144,7 +146,9 @@ func (p *program) Run() error {
 	defer close(p.results)
 
 	for p.pc < len(p.instructions) {
+		fmt.Println(p.instructions[p.pc].String())
 		nextPc := p.step()
+		fmt.Println(nextPc, p.err)
 		if nextPc == -1 {
 			return errors.New(p.err)
 		}
@@ -230,7 +234,7 @@ func (p *program) step() int {
 		}
 	case OpOpenRead:
 		cursor := i.p1
-		pageNo := i.p2
+		pageNo := p.reg(i.p2).data.(int)
 		// cols := instruction.params[2]
 		f, err := storage.NewCursor(p.engine.Pager, storage.CURSOR_READ, pageNo)
 		if err != nil {
@@ -271,9 +275,30 @@ func (p *program) step() int {
 			return jmpAddr
 		}
 	case OpColumn:
-		// cursor := p.cursors[i.p1]
-		// col := i.p2
-		// reg := p.reg(i.p3)
+		cursor := p.cursors[i.p1]
+		col := i.p2
+		reg := p.reg(i.p3)
+		record, err := cursor.CurrentCell()
+		if err != nil {
+			return p.error(err.Error())
+		}
+
+		field := record.Fields[col]
+		reg.data = field.Data
+		if field.Data == nil {
+			reg.typ = RegNull
+		} else {
+			switch field.Type {
+			case storage.Text:
+				reg.typ = RegString
+			case storage.Integer:
+				reg.typ = RegInt32
+			case storage.Byte:
+				reg.typ = RegBinary
+			default:
+				return p.error(fmt.Sprintf("unexpected field type %v", field.Type))
+			}
+		}
 	case OpResultRow:
 		startReg := i.p1
 		colCount := i.p2
@@ -416,4 +441,93 @@ func less(a *register, b *register) bool {
 
 func eq(a *register, b *register) bool {
 	return !less(a, b) && !less(b, a)
+}
+
+func (i instruction) String() string {
+	return fmt.Sprintf("op=%v p1=%d p2=%d p3=%d p4=%v", i.op, i.p1, i.p2, i.p3, i.p4)
+}
+
+func (o op) String() string {
+	switch o {
+	case OpNoOp:
+		return "OpNoOp"
+	case OpInit:
+		return "OpInit"
+	case OpOpenRead:
+		return "OpOpenRead(cursor, page, cols)"
+	case OpOpenWrite:
+		return "OpOpenWrite(cursor, page, cols)"
+	case OpClose:
+		return "OpClose"
+	case OpRewind:
+		return "OpRewind(cursor, jmp)"
+	case OpNext:
+		return "OpNext(cursor, jmp)"
+	case OpPrev:
+		return "OpPrev"
+	case OpSeek:
+		return "OpSeek"
+	case OpSeekGt:
+		return "OpSeekGt"
+	case OpSeekGe:
+		return "OpSeekGe"
+	case OpSeekLt:
+		return "OpSeekLt"
+	case OpSeekLe:
+		return "OpSeekLe"
+	case OpColumn:
+		return "OpColumn(cursor, col, reg)"
+	case OpKey:
+		return "OpKey"
+	case OpInteger:
+		return "OpInteger(int, reg)"
+	case OpString:
+		return "OpString"
+	case OpNull:
+		return "OpNull"
+	case OpResultRow:
+		return "OpResultRow(reg, cols)"
+	case OpMakeRecord:
+		return "OpMakeRecord(startreg, cols, reg)"
+	case OpRowID:
+		return "OpRowID(cursor, reg)"
+	case OpInsert:
+		return "OpInsert(cursor, reg, regkey)"
+	case OpEq:
+		return "OpEq"
+	case OpNe:
+		return "OpNe"
+	case OpLt:
+		return "OpLt"
+	case OpLe:
+		return "OpLe"
+	case OpGt:
+		return "OpGt"
+	case OpGe:
+		return "OpGe"
+	case OpIdxGt:
+		return "OpIdxGt"
+	case OpIdxGe:
+		return "OpIdxGe"
+	case OpIdxLt:
+		return "OpIdxLt"
+	case OpIdxLe:
+		return "OpIdxLe"
+	case OpIdxPKey:
+		return "OpIdxPKey"
+	case OpIdxInsert:
+		return "OpIdxInsert"
+	case OpCreateTable:
+		return "OpCreateTable(reg)"
+	case OpCreateIndex:
+		return "OpCreateIndex"
+	case OpCopy:
+		return "OpCopy"
+	case OpSCopy:
+		return "OpSCopy"
+	case OpHalt:
+		return "OpHalt"
+	}
+
+	return string(o)
 }
