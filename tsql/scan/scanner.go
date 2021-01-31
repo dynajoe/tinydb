@@ -6,8 +6,6 @@ import (
 	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
-type SuspendFunc func(s TinyScanner) bool
-
 type TinyScanner interface {
 	Peek() lexer.Token
 	Backup()

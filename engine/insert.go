@@ -68,7 +68,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		}
 
 		// TODO: this value type may need to be cast or asserted
-		v := ast.Evaluate(expr, nilEvalContext{})
+		v := Evaluate(expr, nilEvalContext{})
 		addField(column, v.Value)
 	}
 

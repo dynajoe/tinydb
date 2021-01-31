@@ -17,7 +17,7 @@ func parseInsert(scanner scan.TinyScanner) (*ast.InsertStatement, error) {
 	returningClause := allX(
 		keyword(lexer.TokenReturning),
 		committed("RETURNING_COLUMNS", commaSeparated(
-			oneOf([]Parser{
+			oneOf([]parserFn{
 				token(lexer.TokenIdentifier),
 				token(lexer.TokenAsterisk),
 			}, func(tokens []lexer.Token) {

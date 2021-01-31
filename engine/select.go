@@ -76,7 +76,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 			for i := range s.table.Columns {
 				mappedData[i] = row.Fields[i].Data
 			}
-			if s.filter != nil && ast.Evaluate(s.filter, evalContext{env: env, data: mappedData}).Value != true {
+			if s.filter != nil && Evaluate(s.filter, evalContext{env: env, data: mappedData}).Value != true {
 				continue
 			}
 			results <- Row{

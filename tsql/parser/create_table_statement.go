@@ -10,14 +10,12 @@ func parseCreateTable(scanner scan.TinyScanner) (*ast.CreateTableStatement, erro
 	createTableStatement := ast.CreateTableStatement{}
 	flags := make(map[string]string)
 
-	scanner.Reset()
-
-	columnDefinition := all([]Parser{
+	columnDefinition := all([]parserFn{
 		optWS,
 		requiredToken(lexer.TokenIdentifier, nil),
 		reqWS,
 		requiredToken(lexer.TokenIdentifier, nil),
-		optional(all([]Parser{
+		optional(all([]parserFn{
 			reqWS,
 			text("PRIMARY"),
 			reqWS,

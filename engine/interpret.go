@@ -1,10 +1,11 @@
-package ast
+package engine
 
 import (
 	"errors"
 	"fmt"
 	"strconv"
 
+	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
@@ -13,11 +14,27 @@ type EvaluatedExpression struct {
 	Error error
 }
 
-func Evaluate(expression Expression, ctx EvaluationContext) EvaluatedExpression {
-	return expression.Evaluate(ctx)
+// EvaluationContext provides a means for resolving identifiers to values
+type EvaluationContext interface {
+	GetValue(ident *ast.Ident) (interface{}, bool)
 }
 
-func (o *BinaryOperation) Evaluate(ctx EvaluationContext) EvaluatedExpression {
+func Evaluate(expression ast.Expression, ctx EvaluationContext) EvaluatedExpression {
+	switch e := expression.(type) {
+	case *ast.BinaryOperation:
+		return evaluateBinaryOperation(e, ctx)
+	case *ast.BasicLiteral:
+		return evaluateLiteral(e, ctx)
+	case *ast.Ident:
+		return evaluateIdent(e, ctx)
+	default:
+		return EvaluatedExpression{
+			Error: errors.New("unrecognized expression"),
+		}
+	}
+}
+
+func evaluateBinaryOperation(o *ast.BinaryOperation, ctx EvaluationContext) EvaluatedExpression {
 	left := Evaluate(o.Left, ctx).Value
 	right := Evaluate(o.Right, ctx).Value
 
@@ -54,7 +71,7 @@ func (o *BinaryOperation) Evaluate(ctx EvaluationContext) EvaluatedExpression {
 	}
 }
 
-func (l *BasicLiteral) Evaluate(EvaluationContext) EvaluatedExpression {
+func evaluateLiteral(l *ast.BasicLiteral, ctx EvaluationContext) EvaluatedExpression {
 	switch l.Kind {
 	case lexer.TokenBoolean:
 		value, _ := strconv.ParseBool(l.Value)
@@ -77,7 +94,7 @@ func (l *BasicLiteral) Evaluate(EvaluationContext) EvaluatedExpression {
 	}
 }
 
-func (i *Ident) Evaluate(ctx EvaluationContext) EvaluatedExpression {
+func evaluateIdent(i *ast.Ident, ctx EvaluationContext) EvaluatedExpression {
 	if v, ok := ctx.GetValue(i); ok {
 		return EvaluatedExpression{
 			Value: v,

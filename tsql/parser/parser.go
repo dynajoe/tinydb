@@ -10,24 +10,27 @@ import (
 
 var topLevelStatements = []struct {
 	Name  string
-	Parse func(scanner scan.TinyScanner) (ast.Statement, error)
+	Parse func(scanner scan.TinyScanner) (ast.Statement, bool, error)
 }{
 	{
 		Name: "CREATE",
-		Parse: func(scanner scan.TinyScanner) (ast.Statement, error) {
-			return parseCreateTable(scanner)
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseCreateTable(scanner)
+			return s, s != nil, err
 		},
 	},
 	{
 		Name: "INSERT",
-		Parse: func(scanner scan.TinyScanner) (ast.Statement, error) {
-			return parseInsert(scanner)
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseInsert(scanner)
+			return s, s != nil, err
 		},
 	},
 	{
 		Name: "SELECT",
-		Parse: func(scanner scan.TinyScanner) (ast.Statement, error) {
-			return parseSelect(scanner)
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseSelect(scanner)
+			return s, s != nil, err
 		},
 	},
 }
@@ -37,15 +40,14 @@ func ParseStatement(sql string) (ast.Statement, error) {
 	scanner := scan.NewScanner(sql)
 
 	for _, p := range topLevelStatements {
-		stmt, err := p.Parse(scanner)
+		stmt, ok, err := p.Parse(scanner)
 		if err != nil {
 			return nil, fmt.Errorf("[%s] parse error at character: %d\nparsed:\n\t%s",
 				p.Name, scanner.Pos(), scanner.Committed())
 		}
-		if stmt != nil {
+		if ok {
 			return stmt, nil
 		}
-
 		scanner.Reset()
 	}
 
