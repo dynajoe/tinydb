@@ -3,10 +3,9 @@ package engine
 import (
 	"sync"
 
-	"github.com/joeandaverde/tinydb/ast"
-
 	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
 // Row is a row in a result

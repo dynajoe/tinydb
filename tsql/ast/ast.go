@@ -2,6 +2,8 @@ package ast
 
 import (
 	"fmt"
+
+	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
 // Statement represents a TinySQL Statement
@@ -77,8 +79,8 @@ type Ident struct {
 
 // BasicLiteral represents a string, number, or boolean value
 type BasicLiteral struct {
-	Value     string
-	TokenType Token
+	Value string
+	Kind  lexer.Kind
 }
 
 func (*SelectStatement) iStatement()      {}

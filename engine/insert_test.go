@@ -1,51 +1,15 @@
-package main
+package engine
 
 import (
 	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
-
-	"github.com/joeandaverde/tinydb/ast"
-
-	"github.com/joeandaverde/tinydb/engine"
 )
-
-func TestSelectStar(t *testing.T) {
-	selectStatement, _ := ast.Parse("SELECT * FROM foo")
-
-	if selectStatement == nil {
-		t.Errorf("parsing select statement failed")
-	}
-}
-
-func TestSelectColumns(t *testing.T) {
-	selectStatement, _ := ast.Parse("SELECT a, b FROM foo")
-
-	if selectStatement == nil {
-		t.Errorf("parsing select statement failed")
-	}
-}
-
-func TestSelectFromMultipleTables(t *testing.T) {
-	selectStatement, _ := ast.Parse("SELECT a, b FROM foo, bar")
-
-	if selectStatement == nil {
-		t.Errorf("parsing select statement failed")
-	}
-}
-
-func TestSelectWhereClause(t *testing.T) {
-	selectStatement, _ := ast.Parse("SELECT a, b FROM foo, bar WHERE a = 1")
-
-	if selectStatement == nil {
-		t.Errorf("parsing select statement failed")
-	}
-}
 
 type cleanupFunc func()
 
-func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
+func initializeTestDb() (*Engine, cleanupFunc, error) {
 	createTableStatement := `
 	CREATE TABLE IF NOT EXISTS company (
 		company_id int PRIMARY KEY,
@@ -65,7 +29,7 @@ func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 		_ = os.RemoveAll(testDir)
 	}
 
-	db := engine.Start(engine.NewConfig(testDir))
+	db := Start(NewConfig(testDir))
 
 	if _, err := db.Execute(createTableStatement); err != nil {
 		return nil, cleanUp, err

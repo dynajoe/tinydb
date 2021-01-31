@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/joeandaverde/tinydb/ast"
 	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/tsql"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
 func (e *Engine) GetTableDefinition(name string) (*TableDefinition, error) {
@@ -24,7 +25,7 @@ func (e *Engine) GetTableDefinition(name string) (*TableDefinition, error) {
 
 	record := tableDefinitionItem.(*btree.StringItem).Data.(*storage.Record)
 	createSQL := record.Fields[4].Data.(string)
-	stmt, err := ast.Parse(createSQL)
+	stmt, err := tsql.Parse(createSQL)
 	if err != nil {
 		return nil, err
 	}
