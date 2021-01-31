@@ -195,7 +195,7 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 		}
 
 		// TODO: this value type may need to be cast or asserted
-		v := ast.Evaluate(expr, nilEvalContext{})
+		v := Evaluate(expr, nilEvalContext{})
 		addField(column, v.Value)
 	}
 

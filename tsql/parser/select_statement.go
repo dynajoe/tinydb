@@ -19,7 +19,7 @@ func parseSelect(scanner scan.TinyScanner) (*ast.SelectStatement, error) {
 	ok, _ := allX(
 		committed("SELECT", keyword(lexer.TokenSelect)),
 		committed("COLUMNS", commaSeparated(
-			oneOf([]Parser{
+			oneOf([]parserFn{
 				token(lexer.TokenIdentifier),
 				token(lexer.TokenAsterisk),
 			}, func(tokens []lexer.Token) {
@@ -28,7 +28,7 @@ func parseSelect(scanner scan.TinyScanner) (*ast.SelectStatement, error) {
 		)),
 		committed("FROM", keyword(lexer.TokenFrom)),
 		committed("RELATIONS", commaSeparated(
-			all([]Parser{
+			all([]parserFn{
 				committed("RELATION", token(lexer.TokenIdentifier)),
 				optionalX(allX(
 					reqWS,
