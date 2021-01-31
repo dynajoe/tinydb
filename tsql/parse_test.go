@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSelect(t *testing.T) {
+func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
 		text string

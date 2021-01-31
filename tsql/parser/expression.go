@@ -1,77 +1,17 @@
-package tsql
+package parser
 
 import (
-	"fmt"
-
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
+	"github.com/joeandaverde/tinydb/tsql/scan"
 )
 
-type Parser func(TinyScanner) (bool, interface{})
+type ExpressionParser func(scan.TinyScanner) (bool, ast.Expression)
 
-type ExpressionParser func(TinyScanner) (bool, ast.Expression)
-
-type OpParser func(TinyScanner) (bool, string)
-
-type nodify func(tokens []lexer.Token)
-
-type nodifyMany func(tokens [][]lexer.Token)
-
-type nodifyExpression func(expr ast.Expression)
-
-type nodifyOperator func(tokens []lexer.Token) string
-
-type expressionMaker func(op string, a ast.Expression, b ast.Expression) ast.Expression
-
-// Parse - parses TinySql statements
-func Parse(sql string) (ast.Statement, error) {
-	sqlLexer := lexer.NewLexer(sql)
-	scanner := &tinyScanner{
-		tokens:   sqlLexer.Exec(),
-		input:    sql,
-		items:    []lexer.Token{},
-		position: 0,
-	}
-
-	makeParseError := func(statementType string, err error) error {
-		if err != nil {
-			return fmt.Errorf("failed parsing [%s] at [%s]", statementType, scanner.committed)
-		}
-
-		return nil
-	}
-
-	if createStatement, err := parseCreateTable(scanner); createStatement != nil || err != nil {
-		return createStatement, makeParseError("CREATE", err)
-	}
-
-	if insertStatement, err := parseInsert(scanner); insertStatement != nil || err != nil {
-		return insertStatement, makeParseError("INSERT", err)
-	}
-
-	if selectStatement, err := parseSelect(scanner); selectStatement != nil || err != nil {
-		return selectStatement, makeParseError("SELECT", err)
-	}
-
-	return nil, nil
-}
-
-func committed(committedAt string, p Parser) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
-		scanner.Commit(committedAt)
-		_, reset := scanner.Mark()
-
-		if success, results := p(scanner); success {
-			return success, results
-		}
-
-		reset()
-		return false, nil
-	}
-}
+type OpParser func(scan.TinyScanner) (bool, string)
 
 func parseTermExpression() ExpressionParser {
-	return func(scanner TinyScanner) (bool, ast.Expression) {
+	return func(scanner scan.TinyScanner) (bool, ast.Expression) {
 		_, reset := scanner.Mark()
 		var expr ast.Expression
 
@@ -80,7 +20,7 @@ func parseTermExpression() ExpressionParser {
 				expr = expression
 			}),
 			parens(lazy(func() Parser {
-				return func(scanner TinyScanner) (bool, interface{}) {
+				return func(scanner scan.TinyScanner) (bool, interface{}) {
 					s, e := parseExpression()(scanner)
 
 					if s {
@@ -112,7 +52,7 @@ func makeBinaryExpression() expressionMaker {
 }
 
 func operatorParser(opParser Parser, nodifyOperator nodifyOperator) OpParser {
-	return func(scanner TinyScanner) (bool, string) {
+	return func(scanner scan.TinyScanner) (bool, string) {
 		var opText string
 
 		success, _ := required(opParser, func(x []lexer.Token) {
@@ -220,13 +160,10 @@ func parseTerm(nodify nodifyExpression) Parser {
 	}, nil)
 }
 
-var optWS = optionalToken(lexer.TokenWhiteSpace)
-var reqWS = requiredToken(lexer.TokenWhiteSpace, nil)
-var eofParser = requiredToken(lexer.TokenEOF, nil)
-
 func optionalToken(expected lexer.Kind) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
-		if scanner.Peek().Kind == expected {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
+		next := scanner.Peek()
+		if next.Kind == expected {
 			scanner.Next()
 		}
 
@@ -245,8 +182,9 @@ func token(expected lexer.Kind) Parser {
 }
 
 func requiredToken(expected lexer.Kind, nodify nodify) Parser {
-	return required(func(scanner TinyScanner) (bool, interface{}) {
-		if scanner.Next().Kind == expected {
+	return required(func(scanner scan.TinyScanner) (bool, interface{}) {
+		next := scanner.Next()
+		if next.Kind == expected {
 			return true, nil
 		}
 
@@ -301,7 +239,7 @@ func keyword(t lexer.Kind) Parser {
 }
 
 func makeExpressionParser(nodify nodifyExpression) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		success, expr := parseExpression()(scanner)
 
 		if success {

@@ -1,11 +1,12 @@
-package tsql
+package parser
 
 import (
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
+	"github.com/joeandaverde/tinydb/tsql/scan"
 )
 
-func parseCreateTable(scanner TinyScanner) (*ast.CreateTableStatement, error) {
+func parseCreateTable(scanner scan.TinyScanner) (*ast.CreateTableStatement, error) {
 	createTableStatement := ast.CreateTableStatement{}
 	flags := make(map[string]string)
 

@@ -1,13 +1,14 @@
-package tsql
+package parser
 
 import (
 	"fmt"
 
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
+	"github.com/joeandaverde/tinydb/tsql/scan"
 )
 
-func parseInsert(scanner TinyScanner) (*ast.InsertStatement, error) {
+func parseInsert(scanner scan.TinyScanner) (*ast.InsertStatement, error) {
 	insertTableStatement := ast.InsertStatement{}
 
 	var columns []string
