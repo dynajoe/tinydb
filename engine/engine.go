@@ -12,7 +12,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/joeandaverde/tinydb/ast"
+	"github.com/joeandaverde/tinydb/tsql"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
@@ -54,7 +55,7 @@ type (
 	Config struct {
 		DataDir           string `yaml:"data_directory"`
 		Addr              string `yaml:"listen"`
-		UseVirtualMachine bool   `yaml:"use_virtual_machine""`
+		UseVirtualMachine bool   `yaml:"use_virtual_machine"`
 	}
 
 	// Engine holds metadata and indexes about the database
@@ -126,7 +127,7 @@ func (e *Engine) Execute(text string) (*ResultSet, error) {
 
 	e.Log.Debug("EXEC: ", text)
 
-	statement, err := ast.Parse(strings.TrimSpace(text))
+	statement, err := tsql.Parse(strings.TrimSpace(text))
 	if err != nil {
 		return nil, err
 	}

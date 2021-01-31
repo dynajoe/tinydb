@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+
+	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
 type EvaluatedExpression struct {
@@ -53,18 +55,18 @@ func (o *BinaryOperation) Evaluate(ctx EvaluationContext) EvaluatedExpression {
 }
 
 func (l *BasicLiteral) Evaluate(EvaluationContext) EvaluatedExpression {
-	switch l.TokenType {
-	case tsqlBoolean:
+	switch l.Kind {
+	case lexer.TokenBoolean:
 		value, _ := strconv.ParseBool(l.Value)
 		return EvaluatedExpression{
 			Value: value,
 		}
-	case tsqlNumber:
+	case lexer.TokenNumber:
 		value, _ := strconv.Atoi(l.Value)
 		return EvaluatedExpression{
 			Value: value,
 		}
-	case tsqlString:
+	case lexer.TokenString:
 		return EvaluatedExpression{
 			Value: l.Value,
 		}

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/joeandaverde/tinydb/ast"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
 const x = 0
@@ -281,6 +281,7 @@ func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
 		lbl{"halt", instruction{OpHalt, x, x, x, x}},
 	}...)
 
+	// TODO: load literals into registers
 	return build(instructions)
 }
 

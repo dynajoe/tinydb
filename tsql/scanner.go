@@ -1,30 +1,31 @@
-package ast
+package tsql
 
 import (
 	"fmt"
+
+	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
 type SuspendFunc func(s TinyScanner) bool
 
 type TinyScanner interface {
-	Peek() TinyDBItem
+	Peek() lexer.Token
 	Backup()
 	Info()
-	Next() TinyDBItem
+	Next() lexer.Token
 	Commit(landmark string)
 	Pos() int
 	Mark() (int, func())
-	Range(int, int) []TinyDBItem
+	Range(int, int) []lexer.Token
 	Reset()
 	Text() string
 }
 
 type tinyScanner struct {
-	lexer     *TinyLexer
+	tokens    <-chan lexer.Token
 	input     string
-	items     []TinyDBItem
+	items     []lexer.Token
 	position  int
-	isAborted bool
 	committed string
 }
 
@@ -32,14 +33,13 @@ type tinyScanner struct {
 func (s *tinyScanner) Reset() {
 	s.position = 0
 	s.committed = ""
-	s.isAborted = false
 }
 
 func (s *tinyScanner) Text() string {
 	return s.input
 }
 
-func (s *tinyScanner) Range(start int, end int) []TinyDBItem {
+func (s *tinyScanner) Range(start int, end int) []lexer.Token {
 	return s.items[start:end]
 }
 
@@ -54,7 +54,7 @@ func (s *tinyScanner) Mark() (int, func()) {
 	}
 }
 
-func (s *tinyScanner) Peek() TinyDBItem {
+func (s *tinyScanner) Peek() lexer.Token {
 	token := s.Next()
 
 	if s.position >= 1 {
@@ -83,20 +83,17 @@ func (s *tinyScanner) Info() {
 		s.items)
 }
 
-func (s *tinyScanner) Next() TinyDBItem {
-	if s.isAborted {
-		return TinyDBItem{
-			Token:    tsqlEOF,
-			Position: 0,
-			Text:     "",
-		}
-	}
-
-	var token TinyDBItem
+func (s *tinyScanner) Next() lexer.Token {
+	var token lexer.Token
 
 	if s.position >= len(s.items) {
-		token = s.lexer.nextItem()
-		s.items = append(s.items, token)
+		select {
+		case token := <-s.tokens:
+			s.items = append(s.items, token)
+		default:
+			// TODO: Where should EOF be presented?
+		}
+
 	} else {
 		token = s.items[s.position]
 	}

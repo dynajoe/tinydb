@@ -1,8 +1,11 @@
-package ast
+package tsql
 
 import (
 	"regexp"
 	"strings"
+
+	"github.com/joeandaverde/tinydb/tsql/ast"
+	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
 
 // chainl requires at least one expression followed by an optional series of [op expression]
@@ -24,8 +27,8 @@ import (
 // e.g. (from wikipedia) Consider the expression a ~ b ~ c.
 // If the operator ~ has left associativity, this expression would be interpreted as (a ~ b) ~ c.
 // If the operator has right associativity, the expression would be interpreted as a ~ (b ~ c).
-func chainl(ep ExpressionParser, em expressionMaker, opParser tsqlOpParser) ExpressionParser {
-	return func(scanner TinyScanner) (bool, Expression) {
+func chainl(ep ExpressionParser, em expressionMaker, opParser OpParser) ExpressionParser {
+	return func(scanner TinyScanner) (bool, ast.Expression) {
 		success, expression := ep(scanner)
 
 		if success {
@@ -128,7 +131,7 @@ func all(parsers []Parser, nodify nodifyMany) Parser {
 	return func(scanner TinyScanner) (bool, interface{}) {
 		_, reset := scanner.Mark()
 		matchesAll := true
-		var tokens [][]TinyDBItem
+		var tokens [][]lexer.Token
 
 		for _, parser := range parsers {
 			before := scanner.Pos()

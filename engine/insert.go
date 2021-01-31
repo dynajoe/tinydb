@@ -3,8 +3,8 @@ package engine
 import (
 	"fmt"
 
-	"github.com/joeandaverde/tinydb/ast"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
 // TODO: this is to get things to compile, need to actually get auto incr key

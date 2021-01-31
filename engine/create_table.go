@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"github.com/joeandaverde/tinydb/ast"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
 func createTable(engine *Engine, createStatement *ast.CreateTableStatement) (*TableDefinition, error) {

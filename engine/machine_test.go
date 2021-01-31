@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeandaverde/tinydb/ast"
+	"github.com/joeandaverde/tinydb/tsql"
+	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -90,7 +91,7 @@ outer:
 
 func (s *VMTestSuite) TestCreateTable() {
 	createSQL := "CREATE TABLE company (company_id int PRIMARY KEY, company_name text);"
-	stmt, err := ast.Parse(createSQL)
+	stmt, err := tsql.Parse(createSQL)
 	s.NoError(err)
 
 	createTableStatement, ok := stmt.(*ast.CreateTableStatement)
@@ -110,7 +111,7 @@ func (s *VMTestSuite) TestInsert() {
 	s.NoError(err)
 
 	insertSQL := "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)"
-	stmt, err := ast.Parse(insertSQL)
+	stmt, err := tsql.Parse(insertSQL)
 	s.NoError(err)
 
 	insertStmt, ok := stmt.(*ast.InsertStatement)
@@ -140,7 +141,7 @@ func (s *VMTestSuite) TestSelect() {
 	_, err = s.engine.Execute("INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
 	s.NoError(err)
 
-	stmt, err := ast.Parse("SELECT * FROM company")
+	stmt, err := tsql.Parse("SELECT * FROM company")
 	s.NoError(err)
 	selectStmt, ok := stmt.(*ast.SelectStatement)
 	s.True(ok)
