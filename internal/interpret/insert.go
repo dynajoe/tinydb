@@ -1,27 +1,17 @@
-package engine
+package interpret
 
 import (
 	"fmt"
 
+	"github.com/joeandaverde/tinydb/engine"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
-// TODO: this is to get things to compile, need to actually get auto incr key
-var keys = make(map[string]int)
+func doInsert(e *engine.Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
+	e.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
 
-func nextKey(tableName string) int {
-	if _, ok := keys[tableName]; !ok {
-		keys[tableName] = 0
-	}
-	keys[tableName] = keys[tableName] + 1
-	return keys[tableName]
-}
-
-func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount int, returning *ResultSet, err error) {
-	engine.Log.Debugf("Inserting [%d] value(s) into [%s]", len(insertStatement.Values), insertStatement.Table)
-
-	metadata, err := engine.GetTableDefinition(insertStatement.Table)
+	metadata, err := e.GetTableDefinition(insertStatement.Table)
 	if err != nil {
 		return 0, nil, fmt.Errorf("unable to locate table %s", insertStatement.Table)
 	}
@@ -36,7 +26,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}
 
 	var fields []*storage.Field
-	addField := func(column ColumnDefinition, value interface{}) {
+	addField := func(column engine.ColumnDefinition, value interface{}) {
 		if k, ok := returningLookup[column.Name]; ok {
 			returnValues[k] = value
 		}
@@ -59,7 +49,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 			Data: value,
 		})
 	}
-	rowID := nextKey(insertStatement.Table)
+
 	for _, column := range metadata.Columns {
 		expr, ok := insertStatement.Values[column.Name]
 		if !ok {
@@ -72,16 +62,7 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 		addField(column, v.Value)
 	}
 
-	rootPage, err := engine.Pager.Read(metadata.RootPage)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	record := storage.NewRecord(fields)
-	if err := storage.WriteRecord(rootPage, rowID, record); err != nil {
-		return 0, nil, err
-	}
-	if err := engine.Pager.Write(rootPage); err != nil {
+	if err := e.InsertRecord(insertStatement.Table, fields); err != nil {
 		return 0, nil, err
 	}
 
@@ -92,14 +73,14 @@ func doInsert(engine *Engine, insertStatement *ast.InsertStatement) (rowCount in
 	}, nil
 }
 
-func rowsFromValues(rows ...[]interface{}) <-chan Row {
-	resultChan := make(chan Row, len(rows))
+func rowsFromValues(rows ...[]interface{}) <-chan engine.Row {
+	resultChan := make(chan engine.Row, len(rows))
 
 	go func() {
 		defer close(resultChan)
 
 		for _, r := range rows {
-			resultChan <- Row{
+			resultChan <- engine.Row{
 				Data:    r,
 				Offset:  0,
 				IsValid: false,

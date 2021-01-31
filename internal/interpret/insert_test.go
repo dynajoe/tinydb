@@ -1,15 +1,17 @@
-package engine
+package interpret
 
 import (
 	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/joeandaverde/tinydb/engine"
 )
 
 type cleanupFunc func()
 
-func initializeTestDb() (*Engine, cleanupFunc, error) {
+func initializeTestDb() (*engine.Engine, cleanupFunc, error) {
 	createTableStatement := `
 	CREATE TABLE IF NOT EXISTS company (
 		company_id int PRIMARY KEY,
@@ -29,9 +31,11 @@ func initializeTestDb() (*Engine, cleanupFunc, error) {
 		_ = os.RemoveAll(testDir)
 	}
 
-	db := Start(NewConfig(testDir))
+	db := engine.Start(&engine.Config{
+		DataDir: testDir,
+	})
 
-	if _, err := db.Execute(createTableStatement); err != nil {
+	if _, err := Execute(db, createTableStatement); err != nil {
 		return nil, cleanUp, err
 	}
 
@@ -58,7 +62,7 @@ func TestInsert(t *testing.T) {
 
 	var results []int
 	for companyId, companyName := range companies {
-		result, err := db.Execute(fmt.Sprintf(`
+		result, err := Execute(db, fmt.Sprintf(`
 			INSERT INTO company (company_id, company_name)
 			VALUES (%d, '%s')
 			RETURNING company_id;
@@ -84,7 +88,7 @@ func TestInsert(t *testing.T) {
 			WHERE companyName.company_id = %d AND companyName.company_name = '%s';
 		`, companyId, companies[companyId])
 
-		result, err := db.Execute(statement)
+		result, err := Execute(db, statement)
 		if err != nil {
 			t.Error(err)
 		}

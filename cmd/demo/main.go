@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/interpret"
 )
 
 func main() {
@@ -34,7 +35,9 @@ func main() {
 		return 0, data, bufio.ErrFinalToken
 	}
 
-	dbEngine := engine.Start(engine.NewConfig("."))
+	dbEngine := engine.Start(&engine.Config{
+		DataDir: ".",
+	})
 
 	scanner.Split(onSemicolon)
 	for scanner.Scan() {
@@ -44,7 +47,7 @@ func main() {
 			continue
 		}
 
-		_, err := dbEngine.Execute(text)
+		_, err := interpret.Execute(dbEngine, text)
 
 		if err != nil {
 			dbEngine.Log.Errorf("Query Error: %s", err.Error())
