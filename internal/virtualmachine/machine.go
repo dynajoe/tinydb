@@ -1,9 +1,10 @@
-package engine
+package virtualmachine
 
 import (
 	"errors"
 	"fmt"
 
+	"github.com/joeandaverde/tinydb/engine"
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
@@ -110,8 +111,13 @@ type instruction struct {
 	p4 interface{}
 }
 
+type Program interface {
+	Run() error
+	Results() <-chan []interface{}
+}
+
 type program struct {
-	engine       *Engine
+	engine       *engine.Engine
 	pc           int
 	instructions []instruction
 	regs         []*register
@@ -122,7 +128,7 @@ type program struct {
 	err          string
 }
 
-func NewProgram(e *Engine, i []instruction) *program {
+func NewProgram(e *engine.Engine, i []instruction) Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -163,6 +169,10 @@ func (p *program) Run() error {
 	}
 
 	return nil
+}
+
+func (p *program) Results() <-chan []interface{} {
+	return p.results
 }
 
 func (p *program) step() int {
@@ -376,7 +386,7 @@ func (p *program) step() int {
 		destReg.data = storage.NewRecord(fields)
 	case OpRowID:
 		// cursor := p.reg(i.p1)
-		p.writeInt(i.p2, nextKey("master"))
+		p.writeInt(i.p2, engine.NextKey("master"))
 	case OpInsert:
 		cursor := p.cursors[i.p1]
 		record := p.reg(i.p2).data.(storage.Record)

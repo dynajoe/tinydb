@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/joeandaverde/tinydb/engine"
-	"gopkg.in/yaml.v2"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/interpret"
+	"gopkg.in/yaml.v2"
 )
 
 type ListenCommand struct {
@@ -102,7 +104,7 @@ func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan 
 			continue
 		}
 
-		result, err := dbEngine.Execute(text)
+		result, err := interpret.Execute(dbEngine, text)
 		writer := bufio.NewWriter(conn)
 
 		if err != nil {

@@ -1,19 +1,13 @@
-package engine
+package interpret
 
 import (
 	"sync"
 
+	"github.com/joeandaverde/tinydb/engine"
 	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 )
-
-// Row is a row in a result
-type Row struct {
-	Data    []interface{}
-	Offset  int64
-	IsValid bool
-}
 
 // ColumnList represents a list of columns of a result set
 type ColumnList []string
@@ -21,7 +15,7 @@ type ColumnList []string
 // ResultSet is the result of a query; rows are provided asynchronously
 type ResultSet struct {
 	Columns ColumnList
-	Rows    <-chan Row
+	Rows    <-chan engine.Row
 	Error   <-chan error
 }
 
@@ -34,34 +28,34 @@ type nestedLoop struct {
 type indexScan struct {
 	index  *btree.BTree
 	value  string
-	table  *TableDefinition
-	column ColumnDefinition
+	table  *engine.TableDefinition
+	column engine.ColumnDefinition
 }
 
 type sequenceScan struct {
-	table  *TableDefinition
+	table  *engine.TableDefinition
 	filter ast.Expression
 }
 
 type executable interface {
-	execute(*Engine, *ExecutionEnvironment) (*ResultSet, error)
-	optimize(*Engine, *ExecutionEnvironment) executable
+	execute(*engine.Engine, *ExecutionEnvironment) (*ResultSet, error)
+	optimize(*engine.Engine, *ExecutionEnvironment) executable
 }
 
 func EmptyResultSet() *ResultSet {
-	rows := make(chan Row)
+	rows := make(chan engine.Row)
 	close(rows)
 	return &ResultSet{
 		Rows: rows,
 	}
 }
 
-func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	rootPage, err := engine.Pager.Read(s.table.RootPage)
+func (s *sequenceScan) execute(e *engine.Engine, env *ExecutionEnvironment) (*ResultSet, error) {
+	rootPage, err := e.Pager.Read(s.table.RootPage)
 	if err != nil {
 		return nil, err
 	}
-	results := make(chan Row)
+	results := make(chan engine.Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
@@ -79,7 +73,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 			if s.filter != nil && Evaluate(s.filter, evalContext{env: env, data: mappedData}).Value != true {
 				continue
 			}
-			results <- Row{
+			results <- engine.Row{
 				Data: mappedData,
 			}
 		}
@@ -92,7 +86,7 @@ func (s *sequenceScan) execute(engine *Engine, env *ExecutionEnvironment) (*Resu
 	}, nil
 }
 
-func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+func (s *sequenceScan) optimize(e *engine.Engine, env *ExecutionEnvironment) executable {
 	// This simply detects: customer_id = 1 or 1 = customer_id
 	if op, ok := s.filter.(*ast.BinaryOperation); ok {
 		ident, literal := ast.IdentLiteralOperation(op)
@@ -101,7 +95,7 @@ func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) execu
 			col := env.ColumnLookup[ident.Value]
 			if col.column.PrimaryKey {
 				return &indexScan{
-					index:  engine.Indexes[s.table.Name],
+					index:  e.Indexes[s.table.Name],
 					value:  literal.Value,
 					table:  s.table,
 					column: col.column,
@@ -113,14 +107,14 @@ func (s *sequenceScan) optimize(engine *Engine, env *ExecutionEnvironment) execu
 	return s
 }
 
-func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
+func (s *indexScan) execute(e *engine.Engine, env *ExecutionEnvironment) (*ResultSet, error) {
 	//rowReader, err := newTableScanner(engine.Config, s.table.Name)
 
 	// if err != nil {
 	// 	return nil, err
 	// }
 
-	results := make(chan Row)
+	results := make(chan engine.Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
@@ -152,7 +146,7 @@ func (s *indexScan) execute(engine *Engine, env *ExecutionEnvironment) (*ResultS
 	}, nil
 }
 
-func (s *indexScan) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+func (s *indexScan) optimize(e *engine.Engine, env *ExecutionEnvironment) executable {
 	return s
 }
 
@@ -174,20 +168,20 @@ func (c evalContext) GetValue(ident *ast.Ident) (interface{}, bool) {
 	return nil, false
 }
 
-func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*ResultSet, error) {
-	results := make(chan Row)
+func (s *nestedLoop) execute(e *engine.Engine, env *ExecutionEnvironment) (*ResultSet, error) {
+	results := make(chan engine.Row)
 	errorChan := make(chan error, 1)
 
 	go func() {
 		defer close(results)
 
-		outerStatement, outerErr := s.outer.optimize(engine, env).execute(engine, env)
+		outerStatement, outerErr := s.outer.optimize(e, env).execute(e, env)
 		if outerErr != nil {
 			errorChan <- outerErr
 			return
 		}
 
-		innerStatement, innerErr := s.inner.optimize(engine, env).execute(engine, env)
+		innerStatement, innerErr := s.inner.optimize(e, env).execute(e, env)
 		if innerErr != nil {
 			errorChan <- outerErr
 			return
@@ -235,11 +229,11 @@ func (s *nestedLoop) execute(engine *Engine, env *ExecutionEnvironment) (*Result
 	}, nil
 }
 
-func (s *nestedLoop) optimize(engine *Engine, env *ExecutionEnvironment) executable {
+func (s *nestedLoop) optimize(e *engine.Engine, env *ExecutionEnvironment) executable {
 	return s
 }
 
-func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatement *ast.SelectStatement) executable {
+func buildPlan(engine *engine.Engine, environment *ExecutionEnvironment, selectStatement *ast.SelectStatement) executable {
 	if len(selectStatement.From) == 1 {
 		return &sequenceScan{
 			table:  environment.Tables[selectStatement.From[0].Alias],
@@ -260,7 +254,7 @@ func buildPlan(engine *Engine, environment *ExecutionEnvironment, selectStatemen
 	}
 }
 
-func doSelect(engine *Engine, selectStatement *ast.SelectStatement) (*ResultSet, error) {
+func doSelect(engine *engine.Engine, selectStatement *ast.SelectStatement) (*ResultSet, error) {
 	environment, err := newExecutionEnvironment(engine, selectStatement.From)
 
 	if err != nil {

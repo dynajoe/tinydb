@@ -1,10 +1,15 @@
-package engine
+package interpret
 
 import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/btree"
+	"github.com/joeandaverde/tinydb/tsql"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
@@ -19,7 +24,28 @@ type EvaluationContext interface {
 	GetValue(ident *ast.Ident) (interface{}, bool)
 }
 
+// Execute runs a statement against the database engine
+func Execute(e *engine.Engine, text string) (*ResultSet, error) {
+	startingTime := time.Now().UTC()
+	defer func() {
+		duration := time.Now().UTC().Sub(startingTime)
+		e.Log.Infof("\nDuration: %s\n", duration)
+	}()
+
+	e.Log.Debug("EXEC: ", text)
+
+	statement, err := tsql.Parse(strings.TrimSpace(text))
+	if err != nil {
+		return nil, err
+	}
+
+	return executeStatement(e, statement)
+}
+
 func Evaluate(expression ast.Expression, ctx EvaluationContext) EvaluatedExpression {
+	if ctx == nil {
+		ctx = nilEvalContext{}
+	}
 	switch e := expression.(type) {
 	case *ast.BinaryOperation:
 		return evaluateBinaryOperation(e, ctx)
@@ -32,6 +58,54 @@ func Evaluate(expression ast.Expression, ctx EvaluationContext) EvaluatedExpress
 			Error: errors.New("unrecognized expression"),
 		}
 	}
+}
+
+type columnLookup struct {
+	index  int
+	column engine.ColumnDefinition
+}
+
+type ExecutionEnvironment struct {
+	ColumnLookup map[string]columnLookup
+	Tables       map[string]*engine.TableDefinition
+	Columns      []string
+	Indexes      map[string]*btree.BTree
+	Engine       *engine.Engine
+}
+
+func newExecutionEnvironment(e *engine.Engine, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
+	colLookup := make(map[string]columnLookup)
+	tableMetadata := make(map[string]*engine.TableDefinition)
+	allMetadata := make([]*engine.TableDefinition, len(tables))
+	i := 0
+	for _, tableAlias := range tables {
+		tableName := tableAlias.Name
+		metadata, err := e.GetTableDefinition(tableName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to locate table %s", tableName)
+		}
+		for _, c := range metadata.Columns {
+			lookupKey := c.Name
+			if tableAlias.Alias != "" {
+				lookupKey = tableAlias.Alias + "." + lookupKey
+			}
+
+			colLookup[lookupKey] = columnLookup{
+				index:  i,
+				column: c,
+			}
+			i++
+		}
+
+		tableMetadata[tableAlias.Alias] = metadata
+		allMetadata = append(allMetadata, metadata)
+	}
+
+	return &ExecutionEnvironment{
+		Tables:       tableMetadata,
+		ColumnLookup: colLookup,
+		Engine:       e,
+	}, nil
 }
 
 func evaluateBinaryOperation(o *ast.BinaryOperation, ctx EvaluationContext) EvaluatedExpression {
@@ -124,4 +198,21 @@ func (e EvaluatedExpression) String() string {
 func isInt(v interface{}) bool {
 	_, success := v.(int)
 	return success
+}
+
+func executeStatement(engine *engine.Engine, statement ast.Statement) (*ResultSet, error) {
+	switch s := (statement).(type) {
+	case *ast.CreateTableStatement:
+		if err := createTable(engine, s); err != nil {
+			return nil, err
+		}
+		return EmptyResultSet(), nil
+	case *ast.InsertStatement:
+		_, result, err := doInsert(engine, s)
+		return result, err
+	case *ast.SelectStatement:
+		return doSelect(engine, s)
+	default:
+		return nil, fmt.Errorf("unexpected statement type")
+	}
 }

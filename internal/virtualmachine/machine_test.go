@@ -1,4 +1,4 @@
-package engine
+package virtualmachine
 
 import (
 	"io/ioutil"
@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/interpret"
 	"github.com/joeandaverde/tinydb/tsql"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/stretchr/testify/suite"
@@ -14,7 +16,7 @@ import (
 type VMTestSuite struct {
 	suite.Suite
 	tempDir string
-	engine  *Engine
+	engine  *engine.Engine
 }
 
 func (s *VMTestSuite) SetupTest() {
@@ -23,7 +25,10 @@ func (s *VMTestSuite) SetupTest() {
 	if err != nil {
 		s.Error(err)
 	}
-	s.engine = Start(NewConfig(tempDir))
+	s.engine = engine.Start(&engine.Config{
+		DataDir:           tempDir,
+		UseVirtualMachine: true,
+	})
 }
 
 func (s *VMTestSuite) TearDownTest() {
@@ -69,7 +74,7 @@ outer:
 		select {
 		case <-time.After(time.Second):
 			s.Fail("row timeout")
-		case r := <-testProgram.results:
+		case r := <-testProgram.Results():
 			if r == nil {
 				break outer
 			}
@@ -107,7 +112,7 @@ func (s *VMTestSuite) TestCreateTable() {
 }
 
 func (s *VMTestSuite) TestInsert() {
-	_, err := s.engine.Execute("CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
+	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
 	s.NoError(err)
 
 	insertSQL := "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)"
@@ -123,7 +128,7 @@ func (s *VMTestSuite) TestInsert() {
 	s.NoError(err)
 
 	// Ensure the row was inserted
-	result, err := s.engine.Execute("SELECT * FROM company")
+	result, err := interpret.Execute(s.engine, "SELECT * FROM company")
 	s.NoError(err)
 	select {
 	case <-time.After(time.Second):
@@ -136,9 +141,9 @@ func (s *VMTestSuite) TestInsert() {
 }
 
 func (s *VMTestSuite) TestSelect() {
-	_, err := s.engine.Execute("CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
+	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
 	s.NoError(err)
-	_, err = s.engine.Execute("INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
+	_, err = interpret.Execute(s.engine, "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
 	s.NoError(err)
 
 	stmt, err := tsql.Parse("SELECT * FROM company")
@@ -153,7 +158,7 @@ func (s *VMTestSuite) TestSelect() {
 	select {
 	case <-time.After(time.Second):
 		s.Fail("test timeout")
-	case row := <-program.results:
+	case row := <-program.Results():
 		if row == nil {
 			s.FailNow("expected a row")
 		}

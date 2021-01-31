@@ -1,9 +1,11 @@
-package engine
+package virtualmachine
 
 import (
 	"fmt"
 	"reflect"
 
+	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/interpret"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 )
@@ -136,7 +138,7 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []instruction {
 // |    9 | Transaction |  0 |  1 |  7 | 0         | 01 |         |
 // |   10 | Goto        |  0 |  1 |  0 |           | 00 |         |
 // +------+-------------+----+----+----+-----------+----+---------+
-func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
+func InsertInstructions(e *engine.Engine, stmt *ast.InsertStatement) []instruction {
 	table, err := e.GetTableDefinition(stmt.Table)
 	if err != nil {
 		return nil
@@ -158,7 +160,7 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 
 	// Generate ops to load registers with column values
 	var fields []instruction
-	addField := func(column ColumnDefinition, value interface{}) {
+	addField := func(column engine.ColumnDefinition, value interface{}) {
 		// Supplied value and column type must match up
 		switch v := value.(type) {
 		case string:
@@ -195,7 +197,7 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 		}
 
 		// TODO: this value type may need to be cast or asserted
-		v := Evaluate(expr, nilEvalContext{})
+		v := interpret.Evaluate(expr, nil)
 		addField(column, v.Value)
 	}
 
@@ -250,7 +252,7 @@ func InsertInstructions(e *Engine, stmt *ast.InsertStatement) []instruction {
 // |   12 | String8     |  0 |  2 |  0 | joe      | 00 |         |
 // |   13 | Goto        |  0 |  1 |  0 |          | 00 |         |
 // +------+-------------+----+----+----+----------+----+---------+
-func SelectInstructions(e *Engine, stmt *ast.SelectStatement) []instruction {
+func SelectInstructions(e *engine.Engine, stmt *ast.SelectStatement) []instruction {
 	table, err := e.GetTableDefinition(stmt.From[0].Name)
 	if err != nil {
 		return nil
