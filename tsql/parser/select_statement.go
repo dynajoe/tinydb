@@ -1,11 +1,12 @@
-package tsql
+package parser
 
 import (
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
+	"github.com/joeandaverde/tinydb/tsql/scan"
 )
 
-func parseSelect(scanner TinyScanner) (*ast.SelectStatement, error) {
+func parseSelect(scanner scan.TinyScanner) (*ast.SelectStatement, error) {
 	selectStatement := ast.SelectStatement{}
 
 	whereClause := allX(
@@ -15,7 +16,6 @@ func parseSelect(scanner TinyScanner) (*ast.SelectStatement, error) {
 		})),
 	)
 
-	scanner.Reset()
 	ok, _ := allX(
 		committed("SELECT", keyword(lexer.TokenSelect)),
 		committed("COLUMNS", commaSeparated(

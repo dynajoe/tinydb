@@ -1,4 +1,4 @@
-package tsql
+package parser
 
 import (
 	"regexp"
@@ -6,7 +6,20 @@ import (
 
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
+	"github.com/joeandaverde/tinydb/tsql/scan"
 )
+
+type Parser func(scan.TinyScanner) (bool, interface{})
+
+type nodify func(tokens []lexer.Token)
+
+type nodifyMany func(tokens [][]lexer.Token)
+
+type nodifyExpression func(expr ast.Expression)
+
+type nodifyOperator func(tokens []lexer.Token) string
+
+type expressionMaker func(op string, a ast.Expression, b ast.Expression) ast.Expression
 
 // chainl requires at least one expression followed by an optional series of [op expression]
 // this combinator is used to eliminate left recursion and build a left-associative expression.
@@ -28,7 +41,7 @@ import (
 // If the operator ~ has left associativity, this expression would be interpreted as (a ~ b) ~ c.
 // If the operator has right associativity, the expression would be interpreted as a ~ (b ~ c).
 func chainl(ep ExpressionParser, em expressionMaker, opParser OpParser) ExpressionParser {
-	return func(scanner TinyScanner) (bool, ast.Expression) {
+	return func(scanner scan.TinyScanner) (bool, ast.Expression) {
 		success, expression := ep(scanner)
 
 		if success {
@@ -52,14 +65,14 @@ func chainl(ep ExpressionParser, em expressionMaker, opParser OpParser) Expressi
 // lazy calls a parser producing function each time it's invoked.
 // this combinator is useful when a parser refers to itself
 func lazy(x func() Parser) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		return x()(scanner)
 	}
 }
 
 // text parses a string using case-insensitive comparison
 func text(r string) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		next := scanner.Peek()
 
 		if strings.ToLower(r) == strings.ToLower(next.Text) {
@@ -75,7 +88,7 @@ func text(r string) Parser {
 // continues if it matches the next token
 func regex(r string) Parser {
 	regex := regexp.MustCompile(r)
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		next := scanner.Peek()
 
 		if regex.MatchString(next.Text) {
@@ -102,7 +115,7 @@ func separatedBy1(separator Parser, parser Parser) Parser {
 
 // zeroOrMore runs parser until it doesn't match anymore and always succeeds
 func zeroOrMore(parser Parser) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		var results []interface{}
 
 		for {
@@ -128,7 +141,7 @@ func allX(parsers ...Parser) Parser {
 
 // all requires that all parsers succeed or no input in consumed
 func all(parsers []Parser, nodify nodifyMany) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		_, reset := scanner.Mark()
 		matchesAll := true
 		var tokens [][]lexer.Token
@@ -156,7 +169,7 @@ func all(parsers []Parser, nodify nodifyMany) Parser {
 
 // oneOf executes each parser until a success. one parser must succeed.
 func oneOf(parsers []Parser, nodify nodify) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		start, reset := scanner.Mark()
 
 		for _, parser := range parsers {
@@ -184,7 +197,7 @@ func optionalX(parser Parser) Parser {
 
 // optional always succeeds and may consume input if the parser succeeds.
 func optional(parser Parser, nodify nodify) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		start, reset := scanner.Mark()
 
 		if success, _ := parser(scanner); success {
@@ -205,7 +218,7 @@ func optional(parser Parser, nodify nodify) Parser {
 // requires only succeeds if the parser succeeds otherwise,
 // no input is consumed and the parser fails.
 func required(parser Parser, nodify nodify) Parser {
-	return func(scanner TinyScanner) (bool, interface{}) {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		start, reset := scanner.Mark()
 
 		if success, result := parser(scanner); success {
@@ -216,6 +229,24 @@ func required(parser Parser, nodify nodify) Parser {
 			}
 
 			return true, result
+		}
+
+		reset()
+		return false, nil
+	}
+}
+
+var optWS = optionalToken(lexer.TokenWhiteSpace)
+var reqWS = requiredToken(lexer.TokenWhiteSpace, nil)
+var eofParser = requiredToken(lexer.TokenEOF, nil)
+
+func committed(committedAt string, p Parser) Parser {
+	return func(scanner scan.TinyScanner) (bool, interface{}) {
+		scanner.Commit(committedAt)
+		_, reset := scanner.Mark()
+
+		if success, results := p(scanner); success {
+			return success, results
 		}
 
 		reset()

@@ -1,4 +1,4 @@
-package tsql
+package scan
 
 import (
 	"fmt"
@@ -14,11 +14,23 @@ type TinyScanner interface {
 	Info()
 	Next() lexer.Token
 	Commit(landmark string)
+	Committed() string
 	Pos() int
 	Mark() (int, func())
 	Range(int, int) []lexer.Token
 	Reset()
 	Text() string
+}
+
+// NewScanner returns a new TinyScanner to navigate the tokens from the input.
+func NewScanner(input string) TinyScanner {
+	sqlLexer := lexer.NewLexer(input)
+	return &tinyScanner{
+		tokens:   sqlLexer.Exec(),
+		input:    input,
+		items:    []lexer.Token{},
+		position: 0,
+	}
 }
 
 type tinyScanner struct {
@@ -37,6 +49,10 @@ func (s *tinyScanner) Reset() {
 
 func (s *tinyScanner) Text() string {
 	return s.input
+}
+
+func (s *tinyScanner) Committed() string {
+	return s.committed
 }
 
 func (s *tinyScanner) Range(start int, end int) []lexer.Token {
@@ -87,13 +103,8 @@ func (s *tinyScanner) Next() lexer.Token {
 	var token lexer.Token
 
 	if s.position >= len(s.items) {
-		select {
-		case token := <-s.tokens:
-			s.items = append(s.items, token)
-		default:
-			// TODO: Where should EOF be presented?
-		}
-
+		token = <-s.tokens
+		s.items = append(s.items, token)
 	} else {
 		token = s.items[s.position]
 	}
