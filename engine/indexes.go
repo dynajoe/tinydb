@@ -4,10 +4,11 @@ import (
 	"sync"
 
 	"github.com/joeandaverde/tinydb/internal/btree"
+	"github.com/joeandaverde/tinydb/internal/metadata"
 )
 
 type pkJob struct {
-	table      TableDefinition
+	table      metadata.TableDefinition
 	fieldIndex int
 	result     *btree.BTree
 }
@@ -50,7 +51,7 @@ func buildIndex(config *Config, job *pkJob) {
 	job.result = b
 }
 
-func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btree.BTree {
+func buildIndexes(config *Config, m map[string]metadata.TableDefinition) map[string]*btree.BTree {
 	indexes := make(map[string]*btree.BTree)
 	results := make(chan *pkJob)
 
@@ -60,7 +61,7 @@ func buildIndexes(config *Config, m map[string]TableDefinition) map[string]*btre
 		for _, c := range t.Columns {
 			if c.PrimaryKey {
 				wg.Add(1)
-				go func(t TableDefinition, c ColumnDefinition) {
+				go func(t metadata.TableDefinition, c metadata.ColumnDefinition) {
 					defer wg.Done()
 					job := &pkJob{fieldIndex: c.Offset, table: t}
 					buildIndex(config, job)

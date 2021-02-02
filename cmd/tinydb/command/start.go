@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/joeandaverde/tinydb/engine"
-	"github.com/joeandaverde/tinydb/internal/interpret"
 )
 
 type StartCommand struct {
@@ -31,23 +30,23 @@ func (i *StartCommand) Run(args []string) int {
 		DataDir: "/Users/joe/Desktop/sqlite/",
 	})
 
-	_, err := interpret.Execute(db, strings.TrimSpace(`CREATE TABLE person(name text)`))
+	_, err := db.Command(strings.TrimSpace(`CREATE TABLE person(name text)`))
 	if err != nil {
 		return 1
 	}
-	_, err = interpret.Execute(db, strings.TrimSpace(`CREATE TABLE company(name text)`))
+	_, err = db.Command(strings.TrimSpace(`CREATE TABLE company(name text)`))
 	if err != nil {
 		return 1
 	}
-	_, err = interpret.Execute(db, "INSERT INTO company (name) VALUES ('hashicorp')")
+	_, err = db.Command("INSERT INTO company (name) VALUES ('hashicorp')")
 	if err != nil {
 		return 1
 	}
-	_, err = interpret.Execute(db, "INSERT INTO company (name) VALUES ('smrxt')")
+	_, err = db.Command("INSERT INTO company (name) VALUES ('smrxt')")
 	if err != nil {
 		return 1
 	}
-	results, err := interpret.Execute(db, "SELECT * FROM company WHERE name = 'hashicorp'")
+	results, err := db.Command("SELECT * FROM company WHERE name = 'hashicorp'")
 	if err != nil {
 		return 1
 	}
