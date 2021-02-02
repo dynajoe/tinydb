@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/joeandaverde/tinydb/engine"
-	"github.com/joeandaverde/tinydb/internal/interpret"
 )
 
 func main() {
@@ -47,7 +46,7 @@ func main() {
 			continue
 		}
 
-		_, err := interpret.Execute(dbEngine, text)
+		_, err := dbEngine.Command(text)
 
 		if err != nil {
 			dbEngine.Log.Errorf("Query Error: %s", err.Error())

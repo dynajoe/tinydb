@@ -4,15 +4,26 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/joeandaverde/tinydb/engine"
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
-type op uint8
+// TODO: this is to get things to compile, need to actually get auto incr key
+var keys = make(map[string]int)
+
+// NextKey is a temporary mechanism to generate an identifier for new records
+func NextKey(tableName string) int {
+	if _, ok := keys[tableName]; !ok {
+		keys[tableName] = 0
+	}
+	keys[tableName] = keys[tableName] + 1
+	return keys[tableName]
+}
+
+type Op uint8
 
 // https://github.com/uchicago-cs/chidb/blob/master/src/libchidb/dbm-types.h
 const (
-	OpNoOp op = iota
+	OpNoOp Op = iota
 	OpInit
 	// Opens B-Tree Rooted at page n
 	// and stores cursor in c
@@ -103,12 +114,12 @@ type register struct {
 	data interface{}
 }
 
-type instruction struct {
-	op op
-	p1 int
-	p2 int
-	p3 int
-	p4 interface{}
+type Instruction struct {
+	Op Op
+	P1 int
+	P2 int
+	P3 int
+	P4 interface{}
 }
 
 type Program interface {
@@ -117,9 +128,9 @@ type Program interface {
 }
 
 type program struct {
-	engine       *engine.Engine
 	pc           int
-	instructions []instruction
+	pager        *storage.Pager
+	instructions []Instruction
 	regs         []*register
 	cursors      []*storage.Cursor
 	strings      []string
@@ -128,7 +139,7 @@ type program struct {
 	err          string
 }
 
-func NewProgram(e *engine.Engine, i []instruction) Program {
+func NewProgram(pager *storage.Pager, i []Instruction) Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -140,10 +151,10 @@ func NewProgram(e *engine.Engine, i []instruction) Program {
 
 	return &program{
 		cursors:      make([]*storage.Cursor, 5),
-		engine:       e,
 		instructions: i,
 		pc:           0,
 		regs:         regs,
+		pager:        pager,
 		results:      make(chan []interface{}),
 	}
 }
@@ -178,94 +189,94 @@ func (p *program) Results() <-chan []interface{} {
 func (p *program) step() int {
 	i := p.instructions[p.pc]
 
-	switch i.op {
+	switch i.Op {
 	case OpNoOp:
 	case OpHalt:
 		p.halted = true
 	case OpInteger:
-		p.writeInt(i.p2, i.p1)
+		p.writeInt(i.P2, i.P1)
 	case OpString:
-		r := i.p2
-		s := i.p4.(string)
+		r := i.P2
+		s := i.P4.(string)
 		reg := p.reg(r)
 		reg.data = s
 		reg.typ = RegString
 	case OpNull:
-		r := i.p2
+		r := i.P2
 		reg := p.reg(r)
 		reg.data = nil
 		reg.typ = RegNull
 	case OpSCopy:
-		r1 := p.reg(i.p1)
-		r2 := p.reg(i.p2)
+		r1 := p.reg(i.P1)
+		r2 := p.reg(i.P2)
 		r2.data = r1.data
 		r2.typ = r1.typ
 	case OpEq:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if eq(a, b) {
 			return jmp
 		}
 	case OpLt:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if less(a, b) {
 			return jmp
 		}
 	case OpLe:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if less(a, b) || eq(a, b) {
 			return jmp
 		}
 	case OpGt:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if !less(a, b) && !eq(a, b) {
 			return jmp
 		}
 	case OpGe:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if !less(a, b) {
 			return jmp
 		}
 	case OpNe:
-		a := p.reg(i.p1)
-		jmp := i.p2
-		b := p.reg(i.p3)
+		a := p.reg(i.P1)
+		jmp := i.P2
+		b := p.reg(i.P3)
 		if !eq(a, b) {
 			return jmp
 		}
 	case OpOpenRead:
-		cursor := i.p1
-		pageNo := p.reg(i.p2).data.(int)
-		// cols := instruction.params[2]
-		f, err := storage.NewCursor(p.engine.Pager, storage.CURSOR_READ, pageNo)
+		cursor := i.P1
+		pageNo := p.reg(i.P2).data.(int)
+		// cols := instruction.Params[2]
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo)
 		if err != nil {
 			return p.error("open read error")
 		}
 		p.cursors[cursor] = f
 	case OpOpenWrite:
-		cursorIndex := i.p1
-		pageNo := p.reg(i.p2).data.(int)
-		// cols := instruction.params[2]
-		f, err := storage.NewCursor(p.engine.Pager, storage.CURSOR_WRITE, pageNo)
+		cursorIndex := i.P1
+		pageNo := p.reg(i.P2).data.(int)
+		// cols := instruction.Params[2]
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo)
 		if err != nil {
 			return p.error("open write error")
 		}
 		p.cursors[cursorIndex] = f
 	case OpClose:
-		cursor := p.cursors[i.p1]
+		cursor := p.cursors[i.P1]
 		cursor.Close()
 	case OpRewind:
-		cursor := p.cursors[i.p1]
-		jmpAddr := i.p2
+		cursor := p.cursors[i.P1]
+		jmpAddr := i.P2
 		hasRecords, err := cursor.Rewind()
 		if err != nil {
 			return p.error("error rewinding cursor")
@@ -274,8 +285,8 @@ func (p *program) step() int {
 			return jmpAddr
 		}
 	case OpNext:
-		cursor := p.cursors[i.p1]
-		jmpAddr := i.p2
+		cursor := p.cursors[i.P1]
+		jmpAddr := i.P2
 		// no more records in cursor
 		hasMore, err := cursor.Next()
 		if err != nil {
@@ -285,9 +296,9 @@ func (p *program) step() int {
 			return jmpAddr
 		}
 	case OpColumn:
-		cursor := p.cursors[i.p1]
-		col := i.p2
-		reg := p.reg(i.p3)
+		cursor := p.cursors[i.P1]
+		col := i.P2
+		reg := p.reg(i.P3)
 		record, err := cursor.CurrentCell()
 		if err != nil {
 			return p.error(err.Error())
@@ -310,8 +321,8 @@ func (p *program) step() int {
 			}
 		}
 	case OpResultRow:
-		startReg := i.p1
-		colCount := i.p2
+		startReg := i.P1
+		colCount := i.P2
 		endReg := startReg + colCount - 1
 		var result []interface{}
 		for i := startReg; i <= endReg; i++ {
@@ -331,19 +342,19 @@ func (p *program) step() int {
 		p.results <- result
 	case OpCreateTable:
 		// Allocate a page for the new table
-		rootPage, err := p.engine.Pager.Allocate()
+		rootPage, err := p.pager.Allocate()
 		if err != nil {
 			return p.error("unable to allocate page for table")
 		}
-		if err := p.engine.Pager.Write(rootPage); err != nil {
+		if err := p.pager.Write(rootPage); err != nil {
 			return p.error("unable to persist new table page")
 		}
-		p.writeInt(i.p1, rootPage.PageNumber)
+		p.writeInt(i.P1, rootPage.PageNumber)
 	case OpMakeRecord:
-		startReg := i.p1
-		colCount := i.p2
+		startReg := i.P1
+		colCount := i.P2
 		endReg := startReg + colCount - 1
-		destReg := p.reg(i.p3)
+		destReg := p.reg(i.P3)
 		var fields []*storage.Field
 
 		for i := startReg; i <= endReg; i++ {
@@ -385,12 +396,12 @@ func (p *program) step() int {
 		destReg.typ = RegRecord
 		destReg.data = storage.NewRecord(fields)
 	case OpRowID:
-		// cursor := p.reg(i.p1)
-		p.writeInt(i.p2, engine.NextKey("master"))
+		// cursor := p.reg(i.P1)
+		p.writeInt(i.P2, NextKey("master"))
 	case OpInsert:
-		cursor := p.cursors[i.p1]
-		record := p.reg(i.p2).data.(storage.Record)
-		key := p.reg(i.p3).data.(int)
+		cursor := p.cursors[i.P1]
+		record := p.reg(i.P2).data.(storage.Record)
+		key := p.reg(i.P3).data.(int)
 		if err := cursor.Insert(key, record); err != nil {
 			return p.error("error performing insert")
 		}
@@ -453,11 +464,11 @@ func eq(a *register, b *register) bool {
 	return !less(a, b) && !less(b, a)
 }
 
-func (i instruction) String() string {
-	return fmt.Sprintf("op=%v p1=%d p2=%d p3=%d p4=%v", i.op, i.p1, i.p2, i.p3, i.p4)
+func (i Instruction) String() string {
+	return fmt.Sprintf("op=%v p1=%d p2=%d p3=%d p4=%v", i.Op, i.P1, i.P2, i.P3, i.P4)
 }
 
-func (o op) String() string {
+func (o Op) String() string {
 	switch o {
 	case OpNoOp:
 		return "OpNoOp"

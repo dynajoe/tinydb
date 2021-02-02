@@ -1,4 +1,4 @@
-package engine
+package metadata
 
 import (
 	"errors"
@@ -11,8 +11,24 @@ import (
 	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
-func (e *Engine) GetTableDefinition(name string) (*TableDefinition, error) {
-	pageOne, err := e.Pager.Read(1)
+// ColumnDefinition represents a specification for a column in a table
+type ColumnDefinition struct {
+	Name         string          `json:"name"`
+	Type         storage.SQLType `json:"type"`
+	Offset       int             `json:"offset"`
+	PrimaryKey   bool            `json:"is_primary_key"`
+	DefaultValue interface{}     `json:"default_value"`
+}
+
+type TableDefinition struct {
+	Name     string             `json:"name"`
+	RawText  string             `json:"raw_text"`
+	Columns  []ColumnDefinition `json:"columns"`
+	RootPage int                `json:"root_page"`
+}
+
+func GetTableDefinition(pager *storage.Pager, name string) (*TableDefinition, error) {
+	pageOne, err := pager.Read(1)
 	if err != nil {
 		return nil, err
 	}

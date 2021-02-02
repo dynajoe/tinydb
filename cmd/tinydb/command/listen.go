@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/joeandaverde/tinydb/engine"
-	"github.com/joeandaverde/tinydb/internal/interpret"
 	"gopkg.in/yaml.v2"
 )
 
@@ -104,7 +103,7 @@ func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan 
 			continue
 		}
 
-		result, err := interpret.Execute(dbEngine, text)
+		result, err := dbEngine.Command(text)
 		writer := bufio.NewWriter(conn)
 
 		if err != nil {
