@@ -27,7 +27,7 @@ type TableDefinition struct {
 	RootPage int                `json:"root_page"`
 }
 
-func GetTableDefinition(pager *storage.Pager, name string) (*TableDefinition, error) {
+func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, error) {
 	pageOne, err := pager.Read(1)
 	if err != nil {
 		return nil, err

@@ -56,10 +56,10 @@ type ExecutionEnvironment struct {
 	Tables       map[string]*metadata.TableDefinition
 	Columns      []string
 	Indexes      map[string]*btree.BTree
-	Pager        *storage.Pager
+	Pager        storage.Pager
 }
 
-func newExecutionEnvironment(pager *storage.Pager, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
+func newExecutionEnvironment(pager storage.Pager, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
 	colLookup := make(map[string]columnLookup)
 	tableMetadata := make(map[string]*metadata.TableDefinition)
 	allMetadata := make([]*metadata.TableDefinition, len(tables))

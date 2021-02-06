@@ -10,8 +10,7 @@ import (
 	"sync"
 )
 
-// Pager manages database paging to and from disk
-type Pager struct {
+type pager struct {
 	fileHeader FileHeader
 	file       *os.File
 	pageCount  int
@@ -19,9 +18,16 @@ type Pager struct {
 	mu         *sync.RWMutex
 }
 
+// Pager manages database paging to and from disk
+type Pager interface {
+	Read(page int) (*MemPage, error)
+	Write(pages ...*MemPage) error
+	Allocate() (*MemPage, error)
+}
+
 // Open opens a new pager using the path specified.
 // The pager owns the file.
-func Open(path string) (*Pager, error) {
+func Open(path string) (Pager, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
 	if err != nil {
 		return nil, err
@@ -35,7 +41,7 @@ func Open(path string) (*Pager, error) {
 	// Set up the file header for the new database
 	if info.Size() == 0 {
 		header := NewFileHeader()
-		pager := &Pager{
+		pager := &pager{
 			fileHeader: header,
 			file:       file,
 			pageCount:  0,
@@ -67,7 +73,7 @@ func Open(path string) (*Pager, error) {
 	}
 
 	header := ParseFileHeader(headerBytes)
-	return &Pager{
+	return &pager{
 		fileHeader: header,
 		file:       file,
 		pageCount:  int(info.Size()) / int(header.PageSize),
@@ -101,7 +107,7 @@ func NewPage(page int, pageSize uint16) *MemPage {
 }
 
 // Read reads a full page from disk
-func (p *Pager) Read(page int) (*MemPage, error) {
+func (p *pager) Read(page int) (*MemPage, error) {
 	p.mu.RLock()
 	if page < 1 || page > p.pageCount {
 		return nil, fmt.Errorf("page [%d] out of bounds", page)
@@ -143,7 +149,7 @@ func (p *Pager) Read(page int) (*MemPage, error) {
 }
 
 // WriteTo writes all pages to disk
-func (p *Pager) Write(pages ...*MemPage) error {
+func (p *pager) Write(pages ...*MemPage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -179,7 +185,7 @@ func (p *Pager) Write(pages ...*MemPage) error {
 	return nil
 }
 
-func (p *Pager) updateFileHeader() error {
+func (p *pager) updateFileHeader() error {
 	p.fileHeader.FileChangeCounter = p.fileHeader.FileChangeCounter + 1
 	p.fileHeader.SizeInPages = uint32(p.pageCount)
 
@@ -196,7 +202,7 @@ func (p *Pager) updateFileHeader() error {
 }
 
 // Allocate virtually allocates a new page in the pager for a TablePage
-func (p *Pager) Allocate() (*MemPage, error) {
+func (p *pager) Allocate() (*MemPage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pageCount = p.pageCount + 1
@@ -237,7 +243,7 @@ func readPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
 	}, nil
 }
 
-func (p *Pager) pageOffset(page int) int64 {
+func (p *pager) pageOffset(page int) int64 {
 	if page == 1 {
 		return 100
 	}

@@ -26,7 +26,7 @@ type Engine struct {
 	Tables            map[string]metadata.TableDefinition
 	Log               *log.Logger
 	Config            *Config
-	Pager             *storage.Pager
+	Pager             storage.Pager
 	adminLock         sync.Mutex
 	useVirtualMachine bool
 }
