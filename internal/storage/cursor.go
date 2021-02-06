@@ -18,11 +18,11 @@ type Cursor struct {
 	start      int64
 	pageNumber int
 	cellIndex  int
-	pager      *Pager
+	pager      Pager
 	memPage    *MemPage
 }
 
-func NewCursor(pager *Pager, typ CursorType, pageNumber int) (*Cursor, error) {
+func NewCursor(pager Pager, typ CursorType, pageNumber int) (*Cursor, error) {
 	pg, err := pager.Read(pageNumber)
 	if err != nil {
 		return nil, err
