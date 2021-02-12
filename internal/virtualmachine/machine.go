@@ -77,6 +77,13 @@ const (
 	// P2 - register containing the record
 	// P3 - register with record key
 	OpInsert
+	// Take the logical AND of the values in registers P1 and P2 and write the result into register P3.
+	// If either P1 or P2 is 0 (false) then the result is 0 even if the other input is NULL. A NULL and true or two NULLs give a NULL output.
+	OpAnd
+	// Add the value in register P1 to the value in register P2 and store the result in register P3. If either input is NULL, the result is NULL.
+	OpAdd
+	// Compare the values in register P1 and P3.
+	// If reg(P3)==reg(P1) then jump to address P2.
 	OpEq
 	OpNe
 	OpLt

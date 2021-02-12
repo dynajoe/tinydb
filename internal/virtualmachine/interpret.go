@@ -48,7 +48,7 @@ func Evaluate(expression ast.Expression, ctx EvaluationContext) EvaluatedExpress
 
 type columnLookup struct {
 	index  int
-	column metadata.ColumnDefinition
+	column *metadata.ColumnDefinition
 }
 
 type ExecutionEnvironment struct {
