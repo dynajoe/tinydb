@@ -21,10 +21,10 @@ type ColumnDefinition struct {
 }
 
 type TableDefinition struct {
-	Name     string             `json:"name"`
-	RawText  string             `json:"raw_text"`
-	Columns  []ColumnDefinition `json:"columns"`
-	RootPage int                `json:"root_page"`
+	Name     string              `json:"name"`
+	RawText  string              `json:"raw_text"`
+	Columns  []*ColumnDefinition `json:"columns"`
+	RootPage int                 `json:"root_page"`
 }
 
 func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, error) {
@@ -46,9 +46,9 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 		return nil, err
 	}
 
-	var cols []ColumnDefinition
+	var cols []*ColumnDefinition
 	for i, c := range stmt.(*ast.CreateTableStatement).Columns {
-		cols = append(cols, ColumnDefinition{
+		cols = append(cols, &ColumnDefinition{
 			Offset:     i,
 			Name:       c.Name,
 			Type:       storage.SQLTypeFromString(c.Type),
