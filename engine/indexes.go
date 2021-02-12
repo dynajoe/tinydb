@@ -61,7 +61,7 @@ func buildIndexes(config *Config, m map[string]metadata.TableDefinition) map[str
 		for _, c := range t.Columns {
 			if c.PrimaryKey {
 				wg.Add(1)
-				go func(t metadata.TableDefinition, c metadata.ColumnDefinition) {
+				go func(t metadata.TableDefinition, c *metadata.ColumnDefinition) {
 					defer wg.Done()
 					job := &pkJob{fieldIndex: c.Offset, table: t}
 					buildIndex(config, job)

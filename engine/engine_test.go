@@ -1,120 +1,115 @@
-package virtualmachine
+package engine
 
-// type VMTestSuite struct {
-// 	suite.Suite
-// 	tempDir string
-// 	engine  *engine.Engine
-// }
+import (
+	"io/ioutil"
+	"os"
+	"testing"
 
-// func (s *VMTestSuite) SetupTest() {
-// 	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
-// 	s.tempDir = tempDir
-// 	if err != nil {
-// 		s.Error(err)
-// 	}
-// 	s.engine = engine.Start(&engine.Config{
-// 		DataDir:           tempDir,
-// 		UseVirtualMachine: true,
-// 	})
-// }
+	"github.com/stretchr/testify/suite"
+)
 
-// func (s *VMTestSuite) TearDownTest() {
-// 	if s.tempDir != "" {
-// 		_ = os.RemoveAll(s.tempDir)
-// 	}
-// }
+type VMTestSuite struct {
+	suite.Suite
+	tempDir string
+	engine  *Engine
+}
 
-// func TestVMTestSuite(t *testing.T) {
-// 	suite.Run(t, new(VMTestSuite))
-// }
+func (s *VMTestSuite) SetupTest() {
+	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
+	s.tempDir = tempDir
+	if err != nil {
+		s.Error(err)
+	}
+	s.engine = Start(&Config{
+		DataDir:           tempDir,
+		UseVirtualMachine: true,
+	})
+}
 
-// func (s *VMTestSuite) TestSimple() {
-// 	sql := "select * from foo"
-// 	instructions := []instruction{
-// 		{OpInteger, 1, 0, 0, 0},
-// 		{OpString, len(sql), 1, x, sql},
-// 		{OpNull, 0, 2, 0, 0},
-// 		{OpResultRow, 0, 3, 0, 0},
-// 		{OpInteger, 2, 0, 0, 0},
-// 		{OpResultRow, 0, 3, 0, 0},
-// 		{OpInteger, 3, 0, 0, 0},
-// 		{OpResultRow, 0, 3, 0, 0},
-// 		{OpInteger, 4, 0, 0, 0},
-// 		{OpResultRow, 0, 3, 0, 0},
-// 		{OpInteger, 5, 0, 0, 0},
-// 		{OpResultRow, 0, 3, 0, 0},
-// 		{OpHalt, 0, 0, 0, 0},
-// 	}
+func (s *VMTestSuite) TearDownTest() {
+	if s.tempDir != "" {
+		_ = os.RemoveAll(s.tempDir)
+	}
+}
 
-// 	testProgram := NewProgram(s.engine, instructions)
-// 	go testProgram.Run()
+func TestVMTestSuite(t *testing.T) {
+	suite.Run(t, new(VMTestSuite))
+}
 
-// 	type testrow struct {
-// 		id   int
-// 		sql  string
-// 		null interface{}
-// 	}
+func (s *VMTestSuite) TestSimple() {
+	s.AssertCommand("create table foo (name text)")
+	s.AssertCommand("insert into foo (name) values ('bar')")
 
-// 	var results []testrow
-// outer:
-// 	for {
-// 		select {
-// 		case <-time.After(time.Second):
-// 			s.Fail("row timeout")
-// 		case r := <-testProgram.Results():
-// 			if r == nil {
-// 				break outer
-// 			}
-// 			results = append(results, testrow{
-// 				id:   r[0].(int),
-// 				sql:  r[1].(string),
-// 				null: r[2],
-// 			})
-// 		}
-// 	}
+	results, err := s.engine.Command("select * from foo")
+	s.NoError(err)
+	rows := collectRows(results)
 
-// 	s.Len(results, 5)
-// 	for i, r := range results {
-// 		s.Equal(i+1, r.id)
-// 		s.Equal(sql, r.sql)
-// 		s.Nil(r.null)
-// 	}
-// }
+	s.NotEmpty(rows)
+	s.Equal("bar", rows[0].Data[0].(string))
+}
+
+func (s *VMTestSuite) TestSimple_WithFilter() {
+	s.AssertCommand("create table foo (name text)")
+	s.AssertCommand("insert into foo (name) values ('bar')")
+	s.AssertCommand("insert into foo (name) values ('baz')")
+
+	results, err := s.engine.Command("select * from foo where name = 'bar'")
+	s.NoError(err)
+	rows := collectRows(results)
+
+	s.NotEmpty(rows)
+	s.Len(rows, 1)
+	s.Equal("bar", rows[0].Data[0].(string))
+}
+
+func (s *VMTestSuite) AssertCommand(cmd string) {
+	results, err := s.engine.Command(cmd)
+	s.NoError(err)
+	collectRows(results)
+}
+
+func collectRows(rs *ResultSet) []Row {
+	var rows []Row
+	for r := range rs.Rows {
+		rows = append(rows, r)
+	}
+	return rows
+}
 
 // func (s *VMTestSuite) TestCreateTable() {
 // 	createSQL := "CREATE TABLE company (company_id int PRIMARY KEY, company_name text);"
 // 	stmt, err := tsql.Parse(createSQL)
 // 	s.NoError(err)
-
+//
 // 	createTableStatement, ok := stmt.(*ast.CreateTableStatement)
 // 	s.True(ok)
-
+//
 // 	instructions := CreateTableInstructions(createTableStatement)
 // 	program := NewProgram(s.engine, instructions)
 // 	program.Run()
-
+//
 // 	tableDefinition, err := s.engine.GetTableDefinition("company")
 // 	s.NoError(err)
 // 	s.Len(tableDefinition.Columns, 2)
 // }
-
+//
 // func (s *VMTestSuite) TestInsert() {
 // 	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
 // 	s.NoError(err)
-
+//
 // 	insertSQL := "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)"
 // 	stmt, err := tsql.Parse(insertSQL)
 // 	s.NoError(err)
-
+//
 // 	insertStmt, ok := stmt.(*ast.InsertStatement)
 // 	s.True(ok)
-
+//
 // 	instructions := InsertInstructions(s.engine, insertStmt)
 // 	program := NewProgram(s.engine, instructions)
 // 	err = program.Run()
 // 	s.NoError(err)
-
-// 	// Ensure the row was inserted
+//
+// 	Ensure the row was inserted
 // 	result, err := interpret.Execute(s.engine, "SELECT * FROM company")
 // 	s.NoError(err)
 // 	select {
@@ -126,22 +121,22 @@ package virtualmachine
 // 		s.Nil(row.Data[2])
 // 	}
 // }
-
+//
 // func (s *VMTestSuite) TestSelect() {
 // 	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
 // 	s.NoError(err)
 // 	_, err = interpret.Execute(s.engine, "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
 // 	s.NoError(err)
-
+//
 // 	stmt, err := tsql.Parse("SELECT * FROM company")
 // 	s.NoError(err)
 // 	selectStmt, ok := stmt.(*ast.SelectStatement)
 // 	s.True(ok)
-
+//
 // 	instructions := SelectInstructions(s.engine, selectStmt)
 // 	program := NewProgram(s.engine, instructions)
 // 	go program.Run()
-
+//
 // 	select {
 // 	case <-time.After(time.Second):
 // 		s.Fail("test timeout")

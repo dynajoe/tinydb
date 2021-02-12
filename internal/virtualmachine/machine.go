@@ -172,7 +172,6 @@ func (p *program) Run() error {
 	for p.pc < len(p.instructions) {
 		fmt.Println(p.instructions[p.pc].String())
 		nextPc := p.step()
-		fmt.Println(nextPc, p.err)
 		if nextPc == -1 {
 			return errors.New(p.err)
 		}
@@ -299,7 +298,7 @@ func (p *program) step() int {
 		if err != nil {
 			return p.error("error moving to next cell")
 		}
-		if !hasMore {
+		if hasMore {
 			return jmpAddr
 		}
 	case OpColumn:
