@@ -474,7 +474,9 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	rewindAddr := p.Op2(vm.OpRewind, readCursor, p.LabelRef("halt"))
 
 	// Add instructions to check against each row
-	ExpressionInstructions(p, tableDefs, stmt.Filter, []int{p.LabelRef("next")})
+	if stmt.Filter != nil {
+		ExpressionInstructions(p, tableDefs, stmt.Filter, evalContext{jf: p.LabelRef("next")})
+	}
 
 	// Load selected columns into registers
 	for i := range selectCols {
@@ -498,10 +500,10 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	return p.instructions
 }
 
-func ExpressionInstructions(p *program, tableDefs map[string]*metadata.TableDefinition, expr ast.Expression, jumpStack stack) int {
+func ExpressionInstructions(p *program, tableDefs map[string]*metadata.TableDefinition, expr ast.Expression, evalCtx evalContext) int {
 	switch e := expr.(type) {
 	case *ast.BinaryOperation:
-		return evaluateBinaryOperation(p, tableDefs, e, true, jumpStack)
+		return evaluateBinaryOperation(p, tableDefs, e, evalCtx)
 	case *ast.BasicLiteral:
 		litReg := p.RegAlloc()
 		switch e.Kind {
@@ -536,26 +538,22 @@ func ResolveIdent(ident string, tableDefs map[string]*metadata.TableDefinition) 
 	return nil, nil, errors.New("cannot resolve ident")
 }
 
-func evaluateBinaryOperation(p *program, tableDefs map[string]*metadata.TableDefinition, o *ast.BinaryOperation, required bool, jumpStack stack) int {
+type evalContext struct {
+	jt int
+	jf int
+}
+
+func evaluateBinaryOperation(p *program, tableDefs map[string]*metadata.TableDefinition, o *ast.BinaryOperation, evalCtx evalContext) int {
 	switch o.Operator {
 	case "=":
-		jumpAddr := jumpStack.Pop()
-		leftReg := ExpressionInstructions(p, tableDefs, o.Left, jumpStack)
-		rightReg := ExpressionInstructions(p, tableDefs, o.Right, jumpStack)
-		if required {
-			p.Op3(vm.OpNe, leftReg, jumpAddr, rightReg)
+		leftReg := ExpressionInstructions(p, tableDefs, o.Left, evalContext{})
+		rightReg := ExpressionInstructions(p, tableDefs, o.Right, evalContext{})
+		if evalCtx.jf != 0 {
+			p.Op3(vm.OpNe, leftReg, evalCtx.jf, rightReg)
 		} else {
-			p.Op3(vm.OpEq, leftReg, jumpAddr, rightReg)
+			p.Op3(vm.OpEq, leftReg, evalCtx.jt, rightReg)
 		}
 		return -1
-	case "AND":
-		jumpIfFalse := jumpStack.Pop()
-		jumpStack.Push(jumpIfFalse)
-		jumpStack.Push(jumpIfFalse)
-		leftReg := ExpressionInstructions(p, tableDefs, o.Left, jumpStack)
-		rightReg := ExpressionInstructions(p, tableDefs, o.Right, jumpStack)
-		return rightReg
-	case "OR":
 	}
 
 	panic("unexpected operator")
