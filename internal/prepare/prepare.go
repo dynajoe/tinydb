@@ -11,7 +11,7 @@ import (
 )
 
 // Prepare compiles a statement into a set of instructions to run in the database virtual machine.
-func Prepare(text string, pager storage.Pager) ([]virtualmachine.Instruction, error) {
+func Prepare(text string, pager storage.Pager) ([]*virtualmachine.Instruction, error) {
 	stmt, err := tsql.Parse(text)
 	if err != nil {
 		return nil, err

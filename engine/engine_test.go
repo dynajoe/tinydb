@@ -56,10 +56,27 @@ func (s *VMTestSuite) TestSimple_WithFilter() {
 	results, err := s.engine.Command("select * from foo where name = 'bar'")
 	s.NoError(err)
 	rows := collectRows(results)
+	expectedResults := [][]interface{}{{"bar"}}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
+}
 
-	s.NotEmpty(rows)
-	s.Len(rows, 1)
-	s.Equal("bar", rows[0].Data[0].(string))
+func (s *VMTestSuite) TestSimple_WithFilter2() {
+	s.AssertCommand("create table foo (name text)")
+	s.AssertCommand("insert into foo (name) values ('bar')")
+	s.AssertCommand("insert into foo (name) values ('bam')")
+	s.AssertCommand("insert into foo (name) values ('baz')")
+
+	results, err := s.engine.Command("select * from foo where name = 'baz' OR name = 'bam'")
+	s.NoError(err)
+	rows := collectRows(results)
+	expectedResults := [][]interface{}{{"bam", "baz"}}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
 }
 
 func (s *VMTestSuite) AssertCommand(cmd string) {
