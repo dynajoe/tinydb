@@ -137,7 +137,7 @@ type Program interface {
 type program struct {
 	pc           int
 	pager        storage.Pager
-	instructions []Instruction
+	instructions []*Instruction
 	regs         []*register
 	cursors      []*storage.Cursor
 	strings      []string
@@ -146,7 +146,7 @@ type program struct {
 	err          string
 }
 
-func NewProgram(pager storage.Pager, i []Instruction) Program {
+func NewProgram(pager storage.Pager, i []*Instruction) Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -471,7 +471,7 @@ func eq(a *register, b *register) bool {
 }
 
 func (i Instruction) String() string {
-	return fmt.Sprintf("%v\tp1=%d\tp2=%d\tp3=%d\tp4=%v", i.Op, i.P1, i.P2, i.P3, i.P4)
+	return fmt.Sprintf("%-30v | %-4d | %-4d | %-4d | %-4v", i.Op, i.P1, i.P2, i.P3, i.P4)
 }
 
 func (o Op) String() string {
