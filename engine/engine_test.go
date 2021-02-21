@@ -89,7 +89,7 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where name = '1' OR name = '2' OR name = '7' OR name = '4'")
+	results, err := s.engine.Command("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
 	s.NoError(err)
 	rows := collectRows(results)
 	expectedResults := [][]interface{}{
@@ -128,12 +128,30 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAnd() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where name = '1' AND name != '2' OR name = '3'")
+	results, err := s.engine.Command("select * from foo where (name = '1' AND name != '2') OR name = '3'")
 	s.NoError(err)
 	rows := collectRows(results)
 	expectedResults := [][]interface{}{
 		{"1"},
 		{"3"},
+	}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
+}
+
+func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
+	s.AssertCommand("create table foo (name text)")
+	for i := 0; i < 10; i++ {
+		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
+	}
+
+	results, err := s.engine.Command("select * from foo where name = '1' AND (name != '2' OR name = '3')")
+	s.NoError(err)
+	rows := collectRows(results)
+	expectedResults := [][]interface{}{
+		{"1"},
 	}
 	s.Len(rows, len(expectedResults))
 	for i, e := range expectedResults {
