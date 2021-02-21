@@ -13,12 +13,10 @@ import (
 )
 
 type program struct {
-	instructions    []*vm.Instruction
-	regPool         map[int]struct{}
-	labelRefs       map[int]string
-	labelRefsByName map[string]int
-	labels          map[string]int
-	readCursors     []int
+	instructions []*vm.Instruction
+	regPool      map[int]struct{}
+	labelRefs    map[int]int
+	readCursors  []int
 }
 
 type Instructions []*vm.Instruction
@@ -33,10 +31,8 @@ func (i Instructions) String() string {
 
 func initProgram() *program {
 	return &program{
-		regPool:         make(map[int]struct{}),
-		labelRefs:       make(map[int]string),
-		labelRefsByName: make(map[string]int),
-		labels:          make(map[string]int),
+		regPool:   make(map[int]struct{}),
+		labelRefs: make(map[int]int),
 	}
 }
 
@@ -69,6 +65,9 @@ func (p *program) Op4(op vm.Op, p1, p2, p3 int, p4 interface{}) int {
 	p.instructions = append(p.instructions, &vm.Instruction{Op: op, P1: p1, P2: p2, P3: p3, P4: p4})
 	return len(p.instructions) - 1
 }
+func (p *program) Comment(s string) {
+	p.instructions[len(p.instructions)-1].Comment = s
+}
 
 func (p *program) OpString(reg int, s string) int {
 	return p.Op4(vm.OpString, len(s), int(reg), x, s)
@@ -86,27 +85,14 @@ func (p *program) OpHalt() int {
 	return p.Op0(vm.OpHalt)
 }
 
-func (p *program) NewLabel() string {
-	labelName := fmt.Sprintf("L:%d", len(p.labelRefs))
+func (p *program) MakeLabel() int {
 	labelRef := -len(p.labelRefs)
-	p.labelRefsByName[labelName] = labelRef
-	p.labelRefs[labelRef] = labelName
-	return labelName
-}
-
-func (p *program) LabelRef(name string) int {
-	if i, ok := p.labelRefsByName[name]; ok {
-		return i
-	}
-
-	labelRef := -len(p.labelRefs)
-	p.labelRefsByName[name] = labelRef
-	p.labelRefs[labelRef] = name
+	p.labelRefs[labelRef] = labelRef
 	return labelRef
 }
 
-func (p *program) Label(addr int, name string) {
-	p.labels[name] = addr
+func (p *program) EmitLabel(labelRef int) {
+	p.labelRefs[labelRef] = len(p.instructions)
 }
 
 func (p *program) ReadCursor(page int) int {
@@ -411,8 +397,7 @@ func (p *program) Finalize() {
 	for _, instruction := range p.instructions {
 		// If P2 is a negative number it is a reference to a labeled instruction
 		if instruction.P2 < 0 {
-			labelName := p.labelRefs[instruction.P2]
-			instruction.P2 = p.labels[labelName]
+			instruction.P2 = p.labelRefs[instruction.P2]
 		}
 	}
 }
@@ -471,33 +456,49 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	// Allocate registers for result columns
 	firstColReg := p.RegAllocN(len(selectCols))
 
+	// Set up labels for control flow
+	haltLabel := p.MakeLabel()
+	nextLabel := p.MakeLabel()
+	recordLabel := p.MakeLabel()
+	evalLabel := p.MakeLabel()
+
 	// Load the root page for the table into a register
 	p.OpInt(rootPageReg, table.RootPage)
 
 	// Open table for reading
 	p.Op3(vm.OpOpenRead, readCursor, rootPageReg, len(selectCols))
 
-	// Go to first entry in btree or go to address
-	rewindAddr := p.Op2(vm.OpRewind, readCursor, p.LabelRef("halt"))
+	// Go to first entry in btree or go to halt
+	p.Op2(vm.OpRewind, readCursor, haltLabel)
 
 	// Add instructions to check against each row
+	p.EmitLabel(evalLabel)
 	if stmt.Filter != nil {
-		ExpressionInstructions(p, tableDefs, stmt.Filter, evalContext{jf: p.LabelRef("next")})
+		transformedExpr := reworkExpression(stmt.Filter)
+		where := whereClause{p: p, tableDefs: tableDefs}
+		where.emit(transformedExpr, evalContext{
+			te:          recordLabel,
+			fe:          nextLabel,
+			conjunction: true,
+		})
 	}
 
 	// Load selected columns into registers
-	for i := range selectCols {
-		p.Op3(vm.OpColumn, readCursor, i, firstColReg+i)
+	for i, c := range selectCols {
+		p.Op3(vm.OpColumn, readCursor, c.Offset, firstColReg+i)
 	}
 
 	// Produce a Row
+	p.EmitLabel(recordLabel)
 	p.Op2(vm.OpResultRow, firstColReg, len(selectCols))
 
 	// Move cursor to next record and go to address if success, otherwise, fallthrough
-	p.Label(p.Op2(vm.OpNext, readCursor, rewindAddr+1), "next")
+	p.EmitLabel(nextLabel)
+	p.Op2(vm.OpNext, readCursor, evalLabel)
 
 	// Set the jump address for halt if there are no records
-	p.Label(p.OpHalt(), "halt")
+	p.EmitLabel(haltLabel)
+	p.OpHalt()
 
 	// Load all literals into registers
 
@@ -507,35 +508,83 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	return p.instructions
 }
 
-func ExpressionInstructions(p *program, tableDefs map[string]*metadata.TableDefinition, expr ast.Expression, evalCtx evalContext) int {
+type evalContext struct {
+	conjunction bool
+	disjunction bool
+	te          int
+	fe          int
+}
+
+type whereClause struct {
+	p         *program
+	tableDefs map[string]*metadata.TableDefinition
+}
+
+func (c whereClause) emit(expr ast.Expression, evalCtx evalContext) int {
 	switch e := expr.(type) {
+	case *ast.LogicalOperation:
+		return c.emitLogicalExpression(e, evalCtx)
 	case *ast.BinaryOperation:
-		return evaluateBinaryOperation(p, tableDefs, e, evalCtx)
+		return c.emitBinaryOperation(e, evalCtx)
 	case *ast.BasicLiteral:
-		litReg := p.RegAlloc()
+		litReg := c.p.RegAlloc()
 		switch e.Kind {
 		case lexer.TokenString:
-			p.OpString(litReg, e.Value)
+			c.p.OpString(litReg, e.Value)
 		}
 		return litReg
 	case *ast.Ident:
 		// Find the table and cursor
-		_, columnDef, err := ResolveIdent(e.Value, tableDefs)
+		_, columnDef, err := c.emitIdent(e.Value)
 		if err != nil {
 			panic(err)
 		}
 		// TODO: get correct read cursor
-		colReg := p.RegAlloc()
-		p.Op3(vm.OpColumn, 0, columnDef.Offset, colReg)
+		colReg := c.p.RegAlloc()
+		c.p.Op3(vm.OpColumn, 0, columnDef.Offset, colReg)
 		return colReg
 	default:
 		panic("unexpected expression type")
 	}
 }
 
-func ResolveIdent(ident string, tableDefs map[string]*metadata.TableDefinition) (*metadata.TableDefinition, *metadata.ColumnDefinition, error) {
+func (c whereClause) emitLogicalExpression(e *ast.LogicalOperation, evalCtx evalContext) int {
+	switch e.Operator {
+	case "OR":
+		trueLabel := c.p.MakeLabel()
+		lastTermIndex := len(e.Terms) - 1
+		for i, t := range e.Terms {
+			// If any term evaluates to true, short circuit evaluation
+			if i != lastTermIndex {
+				falseExit := c.p.MakeLabel()
+				c.emit(t, evalContext{te: trueLabel, fe: falseExit, disjunction: true})
+				c.p.EmitLabel(falseExit)
+			} else {
+				c.emit(t, evalContext{fe: evalCtx.fe, conjunction: true})
+			}
+		}
+		c.p.EmitLabel(trueLabel)
+	case "AND":
+		trueLabel := c.p.MakeLabel()
+		lastTermIndex := len(e.Terms) - 1
+		for i, t := range e.Terms {
+			if i != lastTermIndex {
+				c.emit(t, evalContext{fe: evalCtx.fe, conjunction: true})
+			} else {
+				c.emit(t, evalContext{te: evalCtx.te, conjunction: true})
+			}
+		}
+		c.p.EmitLabel(trueLabel)
+	default:
+		panic("unexpected logical operator")
+	}
+
+	return -1
+}
+
+func (c whereClause) emitIdent(ident string) (*metadata.TableDefinition, *metadata.ColumnDefinition, error) {
 	// TODO: Make this efficient and use table aliases
-	for _, t := range tableDefs {
+	for _, t := range c.tableDefs {
 		for _, c := range t.Columns {
 			if c.Name == ident {
 				return t, c, nil
@@ -545,46 +594,77 @@ func ResolveIdent(ident string, tableDefs map[string]*metadata.TableDefinition) 
 	return nil, nil, errors.New("cannot resolve ident")
 }
 
-type evalContext struct {
-	jt int
-	jf int
-}
-
-func evaluateBinaryOperation(p *program, tableDefs map[string]*metadata.TableDefinition, o *ast.BinaryOperation, evalCtx evalContext) int {
+func (c whereClause) emitBinaryOperation(o *ast.BinaryOperation, evalCtx evalContext) int {
 	switch o.Operator {
 	case "=":
-		leftReg := ExpressionInstructions(p, tableDefs, o.Left, evalContext{})
-		rightReg := ExpressionInstructions(p, tableDefs, o.Right, evalContext{})
-		if evalCtx.jf != 0 {
-			p.Op3(vm.OpNe, leftReg, evalCtx.jf, rightReg)
+		leftReg := c.emit(o.Left, evalContext{})
+		rightReg := c.emit(o.Right, evalContext{})
+		if evalCtx.conjunction {
+			c.p.Op3(vm.OpNe, leftReg, evalCtx.fe, rightReg)
+		} else if evalCtx.disjunction {
+			c.p.Op3(vm.OpEq, leftReg, evalCtx.te, rightReg)
 		} else {
-			p.Op3(vm.OpEq, leftReg, evalCtx.jt, rightReg)
+			panic("unknown logical context")
 		}
+
+		c.p.Comment(o.String())
 		return -1
-	case "OR":
-		rightLabel := p.NewLabel()
-		ExpressionInstructions(p, tableDefs, o.Left, evalContext{jf: p.LabelRef(rightLabel)})
-		ExpressionInstructions(p, tableDefs, o.Right, evalCtx)
+	case "!=":
+		leftReg := c.emit(o.Left, evalContext{})
+		rightReg := c.emit(o.Right, evalContext{})
+		if evalCtx.te != 0 {
+			c.p.Op3(vm.OpNe, leftReg, evalCtx.te, rightReg)
+		} else {
+			c.p.Op3(vm.OpEq, leftReg, evalCtx.fe, rightReg)
+		}
+		c.p.Comment(o.String())
 		return -1
 	}
 
 	panic("unexpected operator")
 }
 
-type stack struct {
-	items []int
+func reworkExpression(expr ast.Expression) ast.Expression {
+	logicalGrouper := logicalGrouper{}
+	return logicalGrouper.Visit(expr)
 }
 
-func (s stack) Depth() int {
-	return len(s.items)
+type Visitor interface {
+	Visit(ast.Expression) ast.Expression
 }
 
-func (s stack) Push(x int) {
-	s.items = append(s.items, x)
-}
+type logicalGrouper struct{}
 
-func (s stack) Pop() int {
-	x := s.items[len(s.items)-1]
-	s.items = s.items[:len(s.items)-1]
-	return x
+func (g logicalGrouper) Visit(expr ast.Expression) ast.Expression {
+	switch e := expr.(type) {
+	case *ast.BinaryOperation:
+		switch e.Operator {
+		case "OR", "AND":
+			result := &ast.LogicalOperation{
+				Operator: e.Operator,
+			}
+
+			leftExpr := g.Visit(e.Left)
+			if leftTerm, ok := leftExpr.(*ast.LogicalOperation); ok && leftTerm.Operator == e.Operator {
+				for _, t := range leftTerm.Terms {
+					result.Terms = append(result.Terms, t)
+				}
+			} else {
+				result.Terms = append(result.Terms, leftExpr)
+			}
+
+			rightExpr := g.Visit(e.Right)
+			if rightTerm, ok := rightExpr.(*ast.LogicalOperation); ok && rightTerm.Operator == e.Operator {
+				for _, t := range rightTerm.Terms {
+					result.Terms = append(result.Terms, t)
+				}
+			} else {
+				result.Terms = append(result.Terms, rightExpr)
+			}
+
+			return result
+		}
+	}
+
+	return expr
 }

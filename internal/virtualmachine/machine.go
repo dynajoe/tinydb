@@ -85,6 +85,8 @@ const (
 	// Compare the values in register P1 and P3.
 	// If reg(P3)==reg(P1) then jump to address P2.
 	OpEq
+	// Compare the values in register P1 and P3.
+	// If reg(P3)!=reg(P1) then jump to address P2.
 	OpNe
 	OpLt
 	OpLe
@@ -127,6 +129,8 @@ type Instruction struct {
 	P2 int
 	P3 int
 	P4 interface{}
+
+	Comment string
 }
 
 type Program interface {
@@ -170,7 +174,6 @@ func (p *program) Run() error {
 	defer close(p.results)
 
 	for p.pc < len(p.instructions) {
-		fmt.Println(p.instructions[p.pc].String())
 		nextPc := p.step()
 		if nextPc == -1 {
 			return errors.New(p.err)
@@ -471,7 +474,7 @@ func eq(a *register, b *register) bool {
 }
 
 func (i Instruction) String() string {
-	return fmt.Sprintf("%-30v | %-4d | %-4d | %-4d | %-4v", i.Op, i.P1, i.P2, i.P3, i.P4)
+	return fmt.Sprintf("%-30v | %-4d | %-4d | %-4d | %-4v | %s", i.Op, i.P1, i.P2, i.P3, i.P4, i.Comment)
 }
 
 func (o Op) String() string {
