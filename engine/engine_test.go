@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -72,7 +73,68 @@ func (s *VMTestSuite) TestSimple_WithFilter2() {
 	results, err := s.engine.Command("select * from foo where name = 'baz' OR name = 'bam'")
 	s.NoError(err)
 	rows := collectRows(results)
-	expectedResults := [][]interface{}{{"bam", "baz"}}
+	expectedResults := [][]interface{}{
+		{"bam"},
+		{"baz"},
+	}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
+}
+
+func (s *VMTestSuite) TestSimple_WithFilter3() {
+	s.AssertCommand("create table foo (name text)")
+	for i := 0; i < 10; i++ {
+		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
+	}
+
+	results, err := s.engine.Command("select * from foo where name = '1' OR name = '2' OR name = '7' OR name = '4'")
+	s.NoError(err)
+	rows := collectRows(results)
+	expectedResults := [][]interface{}{
+		{"1"},
+		{"2"},
+		{"4"},
+		{"7"},
+	}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
+}
+
+func (s *VMTestSuite) TestSimple_WithFilter4() {
+	s.AssertCommand("create table foo (name text)")
+	for i := 0; i < 10; i++ {
+		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
+	}
+
+	results, err := s.engine.Command("select * from foo where name = '1' AND name != '2'")
+	s.NoError(err)
+	rows := collectRows(results)
+	expectedResults := [][]interface{}{
+		{"1"},
+	}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
+}
+
+func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAnd() {
+	s.AssertCommand("create table foo (name text)")
+	for i := 0; i < 10; i++ {
+		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
+	}
+
+	results, err := s.engine.Command("select * from foo where name = '1' AND name != '2' OR name = '3'")
+	s.NoError(err)
+	rows := collectRows(results)
+	expectedResults := [][]interface{}{
+		{"1"},
+		{"3"},
+	}
 	s.Len(rows, len(expectedResults))
 	for i, e := range expectedResults {
 		s.Equal(e, rows[i].Data)
@@ -92,77 +154,3 @@ func collectRows(rs *ResultSet) []Row {
 	}
 	return rows
 }
-
-// func (s *VMTestSuite) TestCreateTable() {
-// 	createSQL := "CREATE TABLE company (company_id int PRIMARY KEY, company_name text);"
-// 	stmt, err := tsql.Parse(createSQL)
-// 	s.NoError(err)
-//
-// 	createTableStatement, ok := stmt.(*ast.CreateTableStatement)
-// 	s.True(ok)
-//
-// 	instructions := CreateTableInstructions(createTableStatement)
-// 	program := NewProgram(s.engine, instructions)
-// 	program.Run()
-//
-// 	tableDefinition, err := s.engine.GetTableDefinition("company")
-// 	s.NoError(err)
-// 	s.Len(tableDefinition.Columns, 2)
-// }
-//
-// func (s *VMTestSuite) TestInsert() {
-// 	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
-// 	s.NoError(err)
-//
-// 	insertSQL := "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)"
-// 	stmt, err := tsql.Parse(insertSQL)
-// 	s.NoError(err)
-//
-// 	insertStmt, ok := stmt.(*ast.InsertStatement)
-// 	s.True(ok)
-//
-// 	instructions := InsertInstructions(s.engine, insertStmt)
-// 	program := NewProgram(s.engine, instructions)
-// 	err = program.Run()
-// 	s.NoError(err)
-//
-// 	Ensure the row was inserted
-// 	result, err := interpret.Execute(s.engine, "SELECT * FROM company")
-// 	s.NoError(err)
-// 	select {
-// 	case <-time.After(time.Second):
-// 		s.Fail("test timeout")
-// 	case row := <-result.Rows:
-// 		s.EqualValues(row.Data[0], 99)
-// 		s.Equal(row.Data[1], "hashicorp")
-// 		s.Nil(row.Data[2])
-// 	}
-// }
-//
-// func (s *VMTestSuite) TestSelect() {
-// 	_, err := interpret.Execute(s.engine, "CREATE TABLE company (company_id int PRIMARY KEY, company_name text, description text);")
-// 	s.NoError(err)
-// 	_, err = interpret.Execute(s.engine, "INSERT INTO company (company_id, company_name, description) VALUES (99, 'hashicorp', NULL)")
-// 	s.NoError(err)
-//
-// 	stmt, err := tsql.Parse("SELECT * FROM company")
-// 	s.NoError(err)
-// 	selectStmt, ok := stmt.(*ast.SelectStatement)
-// 	s.True(ok)
-//
-// 	instructions := SelectInstructions(s.engine, selectStmt)
-// 	program := NewProgram(s.engine, instructions)
-// 	go program.Run()
-//
-// 	select {
-// 	case <-time.After(time.Second):
-// 		s.Fail("test timeout")
-// 	case row := <-program.Results():
-// 		if row == nil {
-// 			s.FailNow("expected a row")
-// 		}
-// 		s.EqualValues(row[0], 99)
-// 		s.Equal(row[1], "hashicorp")
-// 		s.Nil(row[2])
-// 	}
-// }

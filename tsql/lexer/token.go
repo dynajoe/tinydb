@@ -72,9 +72,23 @@ func (t Kind) String() string {
 		return "FROM"
 	case t == TokenWhere:
 		return "WHERE"
+	case t == TokenAnd:
+		return "AND"
+	case t == TokenOr:
+		return "OR"
+	case t == TokenEquals:
+		return "="
+	case t == TokenString:
+		return "String"
+	case t == TokenIdentifier:
+		return "Ident"
+	case t == TokenComma:
+		return "Comma"
+	case t == TokenAsterisk:
+		return "Asterisk"
+	default:
+		return fmt.Sprintf("Kind(%d)", t)
 	}
-
-	return t.String()
 }
 
 func (i Token) String() string {

@@ -11,6 +11,11 @@ type Expression interface {
 	iExpression()
 }
 
+type LogicalOperation struct {
+	Terms    []Expression
+	Operator string
+}
+
 // BinaryOperation is an expression with two operands
 type BinaryOperation struct {
 	Left     Expression
@@ -29,9 +34,10 @@ type BasicLiteral struct {
 	Kind  lexer.Kind
 }
 
-func (*BinaryOperation) iExpression() {}
-func (*Ident) iExpression()           {}
-func (*BasicLiteral) iExpression()    {}
+func (*BinaryOperation) iExpression()  {}
+func (*LogicalOperation) iExpression() {}
+func (*Ident) iExpression()            {}
+func (*BasicLiteral) iExpression()     {}
 
 func IdentLiteralOperation(op *BinaryOperation) (*Ident, *BasicLiteral) {
 	if leftIdent, rightLiteral := asIdent(op.Left), asLiteral(op.Right); leftIdent != nil && rightLiteral != nil {
@@ -63,4 +69,8 @@ func asLiteral(e Expression) *BasicLiteral {
 
 func (o *BinaryOperation) String() string {
 	return fmt.Sprintf("(%s %s %s)", o.Left, o.Operator, o.Right)
+}
+
+func (o *LogicalOperation) String() string {
+	return fmt.Sprintf("(%s %v)", o.Operator, o.Terms)
 }

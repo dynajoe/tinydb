@@ -52,9 +52,9 @@ func TestSelectInstructions_SingleConditionWhereClause(t *testing.T) {
 // |1   |OpenRead   |0 |3 |0 |3       |0 |NULL   |
 // |2   |Rewind     |0 |12|0 |NULL    |0 |NULL   |
 // |3   |Column     |0 |0 |1 |NULL    |0 |NULL   |
-// |4   |Eq         |2 |7 |1 |BINARY-8|66|NULL   |
+// |4   |Eq         |2 |7 |1 |BINARY-8|66|NULL   | (te: 7, fe: 0)
 // |5   |Column     |0 |0 |1 |NULL    |0 |NULL   |
-// |6   |Ne         |3 |11|1 |BINARY-8|82|NULL   |
+// |6   |Ne         |3 |11|1 |BINARY-8|82|NULL   | (te: 0, fe: 11)
 // |7   |Column     |0 |0 |4 |NULL    |0 |NULL   |
 // |8   |Column     |0 |1 |5 |NULL    |0 |NULL   |
 // |9   |Column     |0 |2 |6 |NULL    |0 |NULL   |
@@ -69,12 +69,37 @@ func TestSelectInstructions_SingleConditionWhereClause(t *testing.T) {
 func TestSelectInstructions2(t *testing.T) {
 	r := require.New(t)
 
-	stmt, err := parser.ParseStatement("select * from foo where email = 'baz' OR email = 'bam' OR email = 'baaa'")
+	stmt, err := parser.ParseStatement(`
+		select *
+		from foo
+		where email = 'baz'
+			OR email = 'bam'
+			OR email = 'baaa'
+	`)
 	r.NoError(err)
 
 	instructions := SelectInstructions(testTableDefs, stmt.(*ast.SelectStatement))
 	r.NotEmpty(instructions)
 
 	code := Instructions(instructions).String()
-	r.NotEmpty(code)
+	r.Empty(code)
+}
+
+func TestSelectInstructions3(t *testing.T) {
+	r := require.New(t)
+
+	stmt, err := parser.ParseStatement(`
+		select *
+		from foo
+		where email = 'baz'
+			AND email != 'bam'
+			OR email = 'fog'
+	`)
+	r.NoError(err)
+
+	instructions := SelectInstructions(testTableDefs, stmt.(*ast.SelectStatement))
+	r.NotEmpty(instructions)
+
+	code := Instructions(instructions).String()
+	r.Empty(code)
 }
