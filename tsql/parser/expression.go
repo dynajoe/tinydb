@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"strings"
+
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
 	"github.com/joeandaverde/tinydb/tsql/scan"
@@ -12,7 +14,7 @@ type opParserFn func(scan.TinyScanner) (bool, string)
 
 type nodifyExpression func(expr ast.Expression)
 
-type nodifyOperator func(tokens []lexer.Token) string
+type nodifyOperator func(tokens lexer.Token) string
 
 type expressionMaker func(op string, a ast.Expression, b ast.Expression) ast.Expression
 
@@ -109,16 +111,25 @@ func operatorParser(opParser parserFn, nodifyOperator nodifyOperator) opParserFn
 		var opText string
 
 		success, _ := required(opParser, func(x []lexer.Token) {
-			opText = nodifyOperator(x)
+			opText = nodifyOperator(firstNonSpace(x))
 		})(scanner)
 
 		return success, opText
 	}
 }
 
+func firstNonSpace(tokens []lexer.Token) lexer.Token {
+	for _, t := range tokens {
+		if strings.TrimSpace(t.Text) != "" {
+			return t
+		}
+	}
+	panic("there must be a non-whitespace token")
+}
+
 func comparison() opParserFn {
-	return operatorParser(operator(`=`), func(tokens []lexer.Token) string {
-		return tokens[1].Text
+	return operatorParser(operator(`=`), func(token lexer.Token) string {
+		return token.Text
 	})
 }
 
@@ -126,8 +137,8 @@ func logical() opParserFn {
 	return operatorParser(oneOf([]parserFn{
 		operator(`AND`),
 		operator(`OR`),
-	}, nil), func(tokens []lexer.Token) string {
-		return tokens[1].Text
+	}, nil), func(token lexer.Token) string {
+		return token.Text
 	})
 }
 
@@ -135,8 +146,8 @@ func mult() opParserFn {
 	return operatorParser(oneOf([]parserFn{
 		operator(`\*`),
 		operator(`/`),
-	}, nil), func(tokens []lexer.Token) string {
-		return tokens[1].Text
+	}, nil), func(token lexer.Token) string {
+		return token.Text
 	})
 }
 
@@ -144,8 +155,8 @@ func sum() opParserFn {
 	return operatorParser(oneOf([]parserFn{
 		operator(`\+`),
 		operator(`-`),
-	}, nil), func(tokens []lexer.Token) string {
-		return tokens[1].Text
+	}, nil), func(token lexer.Token) string {
+		return token.Text
 	})
 }
 
@@ -246,11 +257,11 @@ func requiredToken(expected lexer.Kind, nodify nodify) parserFn {
 }
 
 func operator(operatorText string) parserFn {
-	return all([]parserFn{
+	return allX(
 		optWS,
 		regex(operatorText),
 		optWS,
-	}, nil)
+	)
 }
 
 func parens(inner parserFn) parserFn {
