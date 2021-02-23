@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	// For connection to sqlite
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -13,6 +17,7 @@ type VMTestSuite struct {
 	suite.Suite
 	tempDir string
 	engine  *Engine
+	sqlite  *sql.DB
 }
 
 func (s *VMTestSuite) SetupTest() {
@@ -25,6 +30,10 @@ func (s *VMTestSuite) SetupTest() {
 		DataDir:           tempDir,
 		UseVirtualMachine: true,
 	})
+
+	db, err := sql.Open("sqlite3", s.tempDir+"/sqlite.db")
+	s.NoError(err)
+	s.sqlite = db
 }
 
 func (s *VMTestSuite) TearDownTest() {
@@ -105,8 +114,9 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 }
 
 func (s *VMTestSuite) TestSimple_WithFilter4() {
+	fmt.Println(s.tempDir)
 	s.AssertCommand("create table foo (name text)")
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1000; i++ {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
@@ -160,6 +170,8 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 }
 
 func (s *VMTestSuite) AssertCommand(cmd string) {
+	s.sqlite.Exec(cmd)
+
 	results, err := s.engine.Command(cmd)
 	s.NoError(err)
 	collectRows(results)

@@ -23,6 +23,7 @@ type Pager interface {
 	Read(page int) (*MemPage, error)
 	Write(pages ...*MemPage) error
 	Allocate() (*MemPage, error)
+	Reserve() int
 }
 
 // Open opens a new pager using the path specified.
@@ -185,6 +186,28 @@ func (p *pager) Write(pages ...*MemPage) error {
 	return nil
 }
 
+// Allocate virtually allocates a new page in the pager for a TablePage
+func (p *pager) Allocate() (*MemPage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	pageNumber := p.nextPageIndex()
+	page := NewPage(pageNumber, p.fileHeader.PageSize)
+	return page, nil
+}
+
+// Reserve reserves a page number
+func (p *pager) Reserve() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.nextPageIndex()
+}
+
+func (p *pager) nextPageIndex() int {
+	p.pageCount = p.pageCount + 1
+	return p.pageCount
+}
+
 func (p *pager) updateFileHeader() error {
 	p.fileHeader.FileChangeCounter = p.fileHeader.FileChangeCounter + 1
 	p.fileHeader.SizeInPages = uint32(p.pageCount)
@@ -199,15 +222,6 @@ func (p *pager) updateFileHeader() error {
 		return err
 	}
 	return nil
-}
-
-// Allocate virtually allocates a new page in the pager for a TablePage
-func (p *pager) Allocate() (*MemPage, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.pageCount = p.pageCount + 1
-	page := NewPage(p.pageCount, p.fileHeader.PageSize)
-	return page, nil
 }
 
 func readPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
@@ -233,7 +247,7 @@ func readPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
 		RightPage:           0,
 	}
 	if header.Type == PageTypeInternal || header.Type == PageTypeInternalIndex {
-		header.RightPage = binary.BigEndian.Uint32(data[8:11])
+		header.RightPage = binary.BigEndian.Uint32(data[8:12])
 	}
 
 	return &MemPage{

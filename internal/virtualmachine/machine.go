@@ -8,10 +8,10 @@ import (
 )
 
 // TODO: this is to get things to compile, need to actually get auto incr key
-var keys = make(map[string]int)
+var keys = make(map[string]uint32)
 
 // NextKey is a temporary mechanism to generate an identifier for new records
-func NextKey(tableName string) int {
+func NextKey(tableName string) uint32 {
 	if _, ok := keys[tableName]; !ok {
 		keys[tableName] = 0
 	}
@@ -266,7 +266,7 @@ func (p *program) step() int {
 		cursor := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo)
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open read error")
 		}
@@ -275,7 +275,7 @@ func (p *program) step() int {
 		cursorIndex := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo)
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open write error")
 		}
@@ -403,15 +403,16 @@ func (p *program) step() int {
 		}
 
 		destReg.typ = RegRecord
-		destReg.data = storage.NewRecord(fields)
+		destReg.data = fields
 	case OpRowID:
-		// cursor := p.reg(i.P1)
-		p.writeInt(i.P2, NextKey("master"))
+		cursor := p.cursors[i.P1]
+		p.writeInt(i.P2, int(NextKey(cursor.Name)))
 	case OpInsert:
 		cursor := p.cursors[i.P1]
-		record := p.reg(i.P2).data.(storage.Record)
+		fields := p.reg(i.P2).data.([]*storage.Field)
 		key := p.reg(i.P3).data.(int)
-		if err := cursor.Insert(key, record); err != nil {
+		record := storage.NewRecord(uint32(key), fields)
+		if err := cursor.Insert(record); err != nil {
 			return p.error("error performing insert")
 		}
 	}

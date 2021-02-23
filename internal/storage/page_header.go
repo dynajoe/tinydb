@@ -7,8 +7,8 @@ func NewPageHeader(t PageType, pageSize uint16) PageHeader {
 		CellsOffset:         pageSize,
 		FreeBlock:           0,
 		NumCells:            0,
-		RightPage:           0,
 		FragmentedFreeBytes: 0,
+		RightPage:           0,
 	}
 }
 

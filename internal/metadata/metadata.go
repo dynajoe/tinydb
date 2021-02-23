@@ -1,11 +1,9 @@
 package metadata
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 
-	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql"
 	"github.com/joeandaverde/tinydb/tsql/ast"
@@ -27,25 +25,39 @@ type TableDefinition struct {
 	RootPage int                 `json:"root_page"`
 }
 
+var tableCache = make(map[string]*TableDefinition)
+
 func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, error) {
+	if tableDefinition, ok := tableCache[name]; ok {
+		return tableDefinition, nil
+	}
+
 	pageOne, err := pager.Read(1)
 	if err != nil {
 		return nil, err
 	}
 
-	bt := storage.BTreeFromPage(pageOne)
-	tableDefinitionItem := bt.Find(&btree.StringItem{Key: name})
-	if tableDefinitionItem == nil {
-		return nil, errors.New("table not found")
+	rowChan := storage.RowReader(pageOne)
+	for record := range rowChan {
+		if name == record.Fields[1].Data.(string) {
+			tableDefinition, err := tableDefinitionFromRecord(record)
+			if err != nil {
+				return nil, err
+			}
+			tableCache[name] = tableDefinition
+			return tableDefinition, nil
+		}
 	}
 
-	record := tableDefinitionItem.(*btree.StringItem).Data.(*storage.Record)
+	return nil, fmt.Errorf("table not found: %s", name)
+}
+
+func tableDefinitionFromRecord(record storage.Record) (*TableDefinition, error) {
 	createSQL := record.Fields[4].Data.(string)
 	stmt, err := tsql.Parse(createSQL)
 	if err != nil {
 		return nil, err
 	}
-
 	var cols []*ColumnDefinition
 	for i, c := range stmt.(*ast.CreateTableStatement).Columns {
 		cols = append(cols, &ColumnDefinition{
@@ -55,7 +67,6 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 			PrimaryKey: c.PrimaryKey,
 		})
 	}
-
 	var rootPage int
 	switch p := record.Fields[3].Data.(type) {
 	case int:
@@ -71,8 +82,9 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 	default:
 		panic(fmt.Sprintf("unexpected root page type %v", reflect.TypeOf(record.Fields[3].Data)))
 	}
+
 	return &TableDefinition{
-		Name:     name,
+		Name:     record.Fields[1].Data.(string),
 		RootPage: rootPage,
 		Columns:  cols,
 	}, nil
