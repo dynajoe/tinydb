@@ -14,6 +14,8 @@ const (
 )
 
 type Cursor struct {
+	Name string
+
 	typ        CursorType
 	start      int64
 	pageNumber int
@@ -22,12 +24,13 @@ type Cursor struct {
 	memPage    *MemPage
 }
 
-func NewCursor(pager Pager, typ CursorType, pageNumber int) (*Cursor, error) {
+func NewCursor(pager Pager, typ CursorType, pageNumber int, name string) (*Cursor, error) {
 	pg, err := pager.Read(pageNumber)
 	if err != nil {
 		return nil, err
 	}
 	return &Cursor{
+		Name:       name,
 		pager:      pager,
 		pageNumber: pageNumber,
 		memPage:    pg,
@@ -54,19 +57,9 @@ func (c *Cursor) CurrentCell() (Record, error) {
 	return ReadRecord(reader)
 }
 
-func (c *Cursor) Insert(rowID int, record Record) error {
-	rootPage, err := c.pager.Read(c.pageNumber)
-	if err != nil {
-		return err
-	}
-	if err := WriteRecord(rootPage, rowID, record); err != nil {
-		return err
-	}
-	if err := c.pager.Write(rootPage); err != nil {
-		return err
-	}
-
-	return nil
+func (c *Cursor) Insert(record Record) error {
+	btreeTable := NewBTreeTable(c.pageNumber, c.pager)
+	return btreeTable.Insert(record)
 }
 
 // Next advances the cursor to the next record

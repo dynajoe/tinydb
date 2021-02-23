@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/joeandaverde/tinydb/internal/btree"
 	"golang.org/x/net/context"
 )
 
@@ -48,19 +47,4 @@ func RowReader(p *MemPage) <-chan Record {
 	}()
 
 	return rowChan
-
-}
-
-func BTreeFromPage(p *MemPage) *btree.BTree {
-	bt := btree.New(5)
-
-	rowChan := RowReader(p)
-	for record := range rowChan {
-		bt.Insert(&btree.StringItem{
-			Key:  record.Fields[1].Data.(string),
-			Data: &record,
-		})
-	}
-
-	return bt
 }

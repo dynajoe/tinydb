@@ -2,8 +2,33 @@ package storage
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
+
+func ReadVarint32(reader io.ByteReader) (uint32, int, error) {
+	result := uint32(0)
+	bytesRead := 0
+
+	for i := 0; i < 4; i++ {
+		b, err := reader.ReadByte()
+		if err != nil {
+			return 0, bytesRead, err
+		}
+
+		result = result << 7
+		result = result | uint32((b & 0x7f))
+		bytesRead++
+		if bytesRead > 1 {
+			fmt.Println("%d", result)
+		}
+		if b&0x80 == 0 {
+			break
+		}
+	}
+
+	return result, bytesRead, nil
+}
 
 func ReadVarint(reader io.ByteReader) (uint64, int, error) {
 	a0, err := reader.ReadByte()
@@ -74,6 +99,20 @@ func ReadVarint(reader io.ByteReader) (uint64, int, error) {
 	}
 
 	return binary.BigEndian.Uint64(bs), len(bs) + 1, nil
+}
+
+func WriteVarint32(w io.ByteWriter, x uint64) (int, error) {
+	i := 0
+	for x >= 0x80 {
+		if err := w.WriteByte(byte(x) | 0x80); err != nil {
+			return i, err
+		}
+		x >>= 7
+	}
+	if err := w.WriteByte(byte(x)); err != nil {
+		return i, err
+	}
+	return i + 1, nil
 }
 
 func WriteVarint(w io.ByteWriter, v uint64) (int, error) {

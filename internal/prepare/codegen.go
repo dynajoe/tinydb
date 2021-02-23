@@ -316,7 +316,7 @@ func InsertInstructions(pager storage.Pager, stmt *ast.InsertStatement) []*vm.In
 	p.OpInt(rootPageReg, table.RootPage)
 
 	// Open the root page for writing
-	p.Op3(vm.OpOpenWrite, cursorIndex, rootPageReg, len(table.Columns))
+	p.Op4(vm.OpOpenWrite, cursorIndex, rootPageReg, len(table.Columns), table.Name)
 
 	// RowID for table
 	p.Op2(vm.OpRowID, cursorIndex, rowIDReg)
@@ -466,7 +466,7 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	p.OpInt(rootPageReg, table.RootPage)
 
 	// Open table for reading
-	p.Op3(vm.OpOpenRead, readCursor, rootPageReg, len(selectCols))
+	p.Op4(vm.OpOpenRead, readCursor, rootPageReg, len(selectCols), table.Name)
 
 	// Go to first entry in btree or go to halt
 	p.Op2(vm.OpRewind, readCursor, haltLabel)
