@@ -116,7 +116,7 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 func (s *VMTestSuite) TestSimple_WithFilter4() {
 	fmt.Println(s.tempDir)
 	s.AssertCommand("create table foo (name text)")
-	for i := 0; i < 1000; i++ {
+	for i := 1; i <= 1000; i++ {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 

@@ -26,7 +26,7 @@ func (r InteriorNode) Write(bs io.ByteWriter) error {
 	}
 
 	// Write the key
-	WriteVarint32(&recordBuffer, uint64(r.Key))
+	WriteVarint(&recordBuffer, uint64(r.Key))
 
 	// Write to the byte writer
 	// TODO: this seems ineffective.
