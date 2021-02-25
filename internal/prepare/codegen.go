@@ -199,7 +199,7 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []*vm.Instruction {
 
 	// Open database file cursor at page in [Reg 0] and store cursor at [Cur 0] with 5 columns
 	openCursor := 0
-	p.Op3(vm.OpOpenWrite, openCursor, pageReg, 5)
+	p.Op4(vm.OpOpenWrite, openCursor, pageReg, 5, ".schema")
 
 	// Master table entry [Reg 1-5]
 	masterTable1Reg := p.RegAlloc()

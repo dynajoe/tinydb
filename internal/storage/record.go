@@ -69,7 +69,7 @@ func (r Record) Write(bs io.ByteWriter) error {
 			colBuf.WriteByte(4)
 		case Text:
 			fieldSize := uint64(2*len(f.Data.(string)) + 13)
-			_, err := WriteVarint32(&colBuf, fieldSize)
+			_, err := WriteVarint(&colBuf, fieldSize)
 			if err != nil {
 				panic("unable to write varint")
 			}
@@ -113,10 +113,10 @@ func (r Record) Write(bs io.ByteWriter) error {
 
 	// Finally, write everything to the supplied writer
 	// [Size, Key, Record]
-	if _, err := WriteVarint32(bs, uint64(len(recordBuffer.Bytes()))); err != nil {
+	if _, err := WriteVarint(bs, uint64(len(recordBuffer.Bytes()))); err != nil {
 		return err
 	}
-	if _, err := WriteVarint32(bs, uint64(r.RowID)); err != nil {
+	if _, err := WriteVarint(bs, uint64(r.RowID)); err != nil {
 		return err
 	}
 	for _, b := range recordBuffer.Bytes() {
@@ -147,7 +147,7 @@ func makeInteriorPage(pageNumber int, leftPage *MemPage, rightPage *MemPage) *Me
 func WriteInteriorEntry(p *MemPage, key int, leftChild uint32) {
 	binary.BigEndian.PutUint32(p.Data[0:4], leftChild)
 	buf := bytes.Buffer{}
-	WriteVarint32(&buf, uint64(key))
+	WriteVarint(&buf, uint64(key))
 	copy(p.Data[4:], buf.Bytes())
 }
 
@@ -240,23 +240,23 @@ func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName 
 }
 
 func ReadRecord(r io.ByteReader) (Record, error) {
-	_, _, err := ReadVarint32(r)
+	_, _, err := ReadVarint(r)
 	if err != nil {
 		return Record{}, err
 	}
 
-	rowID, _, err := ReadVarint32(r)
+	rowID, _, err := ReadVarint(r)
 	if err != nil {
 		return Record{}, err
 	}
 
 	var fields []*Field
-	recordHeaderLen, _, err := ReadVarint32(r)
+	recordHeaderLen, _, err := ReadVarint(r)
 	// Subtract the # of bytes for the header len.
 	// Need to find out how many bytes were used for the varint
 	recordHeaderLen = recordHeaderLen - 1
 	for recordHeaderLen > 0 {
-		colType, n, err := ReadVarint32(r)
+		colType, n, err := ReadVarint(r)
 		if err != nil {
 			return Record{}, err
 		}
@@ -285,7 +285,7 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 			Data: nil,
 		})
 
-		recordHeaderLen = uint32(recordHeaderLen) - uint32(n)
+		recordHeaderLen = recordHeaderLen - uint64(n)
 	}
 
 	for _, f := range fields {
@@ -311,7 +311,7 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 	}
 
 	return Record{
-		RowID:  rowID,
+		RowID:  uint32(rowID),
 		Fields: fields,
 	}, nil
 }

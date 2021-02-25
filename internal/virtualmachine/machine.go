@@ -485,9 +485,9 @@ func (o Op) String() string {
 	case OpInit:
 		return "OpInit"
 	case OpOpenRead:
-		return "OpOpenRead(cursor, page, cols)"
+		return "OpOpenRead(cursor, page, cols, tableName)"
 	case OpOpenWrite:
-		return "OpOpenWrite(cursor, page, cols)"
+		return "OpOpenWrite(cursor, page, cols, tableName)"
 	case OpClose:
 		return "OpClose"
 	case OpRewind:
