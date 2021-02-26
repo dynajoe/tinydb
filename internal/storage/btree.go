@@ -9,6 +9,7 @@ import (
 type BTreeTable struct {
 	rootPage int
 	pager    Pager
+	wal      *WAL
 }
 
 type InteriorNode struct {
@@ -39,8 +40,12 @@ func (r InteriorNode) Write(bs io.ByteWriter) error {
 	return nil
 }
 
-func NewBTreeTable(rootPage int, p Pager) *BTreeTable {
-	return &BTreeTable{rootPage: rootPage, pager: p}
+func NewBTreeTable(rootPage int, p Pager, wal *WAL) *BTreeTable {
+	return &BTreeTable{
+		wal:      wal,
+		rootPage: rootPage,
+		pager:    p,
+	}
 }
 
 func (b *BTreeTable) Insert(r Record) error {
@@ -55,6 +60,9 @@ func (b *BTreeTable) Insert(r Record) error {
 	if err != nil {
 		return err
 	}
+
+	// Append to WAL
+	b.wal.Append()
 
 	// Only support leaf pages at root for now.
 	if root.Type != PageTypeLeaf {
