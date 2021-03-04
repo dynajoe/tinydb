@@ -161,7 +161,7 @@ func (p *pager) Write(pages ...*MemPage) error {
 
 		// Overwrite the entire page
 		offset := p.pageOffset(page.PageNumber)
-		if _, err := p.file.Seek(offset, 0); err != nil {
+		if _, err := p.file.Seek(offset, io.SeekStart); err != nil {
 			return err
 		}
 

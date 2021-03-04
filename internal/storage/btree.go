@@ -61,9 +61,6 @@ func (b *BTreeTable) Insert(r Record) error {
 		return err
 	}
 
-	// Append to WAL
-	b.wal.Append()
-
 	// Only support leaf pages at root for now.
 	if root.Type != PageTypeLeaf {
 		panic("traversing internal node not supported yet")

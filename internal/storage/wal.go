@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"sync"
 )
 
 const (
@@ -44,10 +45,18 @@ type WAL struct {
 	file             *os.File
 	pageSize         uint32
 	checkpointNumber uint32
+	salt1            uint32
+	salt2            uint32
+	pos              uint32
+
+	mu *sync.RWMutex
 }
 
 func (w *WAL) Init(path string, pageSize uint32) error {
-	f, err := os.Open(path)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
@@ -55,22 +64,64 @@ func (w *WAL) Init(path string, pageSize uint32) error {
 	w.pageSize = pageSize
 
 	// Add header
-	if err := w.appendHeader(); err != nil {
+	if err := w.writeHeader(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (w *WAL) appendHeader() error {
+func (w *WAL) Write(p *MemPage, isCommit bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	frame, err := w.makeWalFrame(p, isCommit)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(w.file, bytes.NewReader(frame)); err != nil {
+		return err
+	} else if err = w.file.Sync(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *WAL) Checkpoint() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Write all pages to db file
+
+	// Checkpoints always start at the beginning of the file
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	// Start a new checkpoint
+	w.checkpointNumber++
+	if err := w.writeHeader(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *WAL) writeHeader() error {
 	header := make([]byte, WALHeaderLen)
+
+	w.checkpointNumber++
+	w.salt1 = rand.Uint32()
+	w.salt2 = rand.Uint32()
 
 	binary.BigEndian.PutUint32(header[0:4], WALMagicNumber)
 	binary.BigEndian.PutUint32(header[4:8], WALFileFormat)
 	binary.BigEndian.PutUint32(header[8:12], w.pageSize)
 	binary.BigEndian.PutUint32(header[12:16], w.checkpointNumber)
-	binary.BigEndian.PutUint32(header[16:20], rand.Uint32())
-	binary.BigEndian.PutUint32(header[20:24], rand.Uint32())
+	binary.BigEndian.PutUint32(header[16:20], w.salt1)
+	binary.BigEndian.PutUint32(header[20:24], w.salt2)
 
 	// Calculate the sum of the header up to this point
 	h := crc64.New(crc64.MakeTable(crc64.ISO))
@@ -80,23 +131,34 @@ func (w *WAL) appendHeader() error {
 	}
 	binary.BigEndian.PutUint64(header[24:32], h.Sum64())
 
-	// Write the header & flush
-	if _, err := io.Copy(w.file, bytes.NewReader(header)); err != nil {
+	// Write the header to the start of the file & flush
+	if _, err := w.file.Seek(0, 0); err != nil {
+		return err
+	} else if _, err := io.Copy(w.file, bytes.NewReader(header)); err != nil {
 		return err
 	} else if err = w.file.Sync(); err != nil {
 		return err
 	}
 
+	// The next write to the WAL will be here.
+	w.pos = WALHeaderLen
+
 	return nil
 }
 
-func (w *WAL) appendFrameHeader(pageNumber uint32, salt1, salt2 uint32) error {
-	header := make([]byte, WALFrameHeaderLen)
+func (w *WAL) makeWalFrame(p *MemPage, isCommit bool) ([]byte, error) {
+	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.pageSize)
 
-	binary.BigEndian.PutUint32(header[0:4], pageNumber)
-	binary.BigEndian.PutUint32(header[4:8], 0)
-	binary.BigEndian.PutUint32(header[8:12], salt1)
-	binary.BigEndian.PutUint32(header[12:16], salt2)
+	binary.BigEndian.PutUint32(header[0:4], uint32(p.PageNumber))
+
+	if isCommit {
+		binary.BigEndian.PutUint32(header[4:8], 1)
+	} else {
+		binary.BigEndian.PutUint32(header[4:8], 0)
+	}
+
+	binary.BigEndian.PutUint32(header[8:12], w.salt1)
+	binary.BigEndian.PutUint32(header[12:16], w.salt2)
 
 	// The checksum values in the final 8 bytes of the frame-header exactly
 	// match the checksum computed consecutively on the first 24 bytes of
@@ -104,31 +166,12 @@ func (w *WAL) appendFrameHeader(pageNumber uint32, salt1, salt2 uint32) error {
 	// up to and including the current frame.
 	binary.BigEndian.PutUint64(header[24:32], 0)
 
-	// Write the frame header & flush
-	if _, err := io.Copy(w.file, bytes.NewReader(header)); err != nil {
-		return err
-	} else if err = w.file.Sync(); err != nil {
-		return err
+	pageBuffer := bytes.NewBuffer(header)
+	if _, err := pageBuffer.Write(header); err != nil {
+		return nil, err
+	} else if err := p.Write(pageBuffer); err != nil {
+		return nil, err
 	}
 
-	return nil
-}
-
-func (w *WAL) Write() {}
-
-func (w *WAL) Checkpoint() error {
-	// TODO: Flush everything to db file
-
-	// Checkpoints always start at the beginning of the file
-	if _, err := w.file.Seek(0, 0); err != nil {
-		return err
-	}
-
-	// Start a new checkpoint
-	w.checkpointNumber++
-	if err := w.appendHeader(); err != nil {
-		return err
-	}
-
-	return nil
+	return pageBuffer.Bytes(), nil
 }
