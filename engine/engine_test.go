@@ -24,6 +24,7 @@ func (s *VMTestSuite) SetupTest() {
 	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
 	s.tempDir = tempDir
 	s.NoError(err)
+	fmt.Println(s.tempDir)
 
 	s.engine, err = Start(&Config{
 		DataDir:           tempDir,
@@ -45,6 +46,27 @@ func (s *VMTestSuite) TearDownTest() {
 
 func TestVMTestSuite(t *testing.T) {
 	suite.Run(t, new(VMTestSuite))
+}
+
+func (s *VMTestSuite) TestSimple_Btree() {
+	s.AssertCommand("create table foo (name text)")
+	for i := 0; i < 1000; i++ {
+		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
+	}
+
+	results, err := s.engine.Command("select * from foo where name = '999'")
+	s.NoError(err)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
+	expectedResults := [][]interface{}{
+		{"999"},
+	}
+	s.Len(rows, len(expectedResults))
+	for i, e := range expectedResults {
+		s.Equal(e, rows[i].Data)
+	}
 }
 
 func (s *VMTestSuite) TestSimple() {
@@ -126,9 +148,8 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 }
 
 func (s *VMTestSuite) TestSimple_WithFilter4() {
-	fmt.Println(s.tempDir)
 	s.AssertCommand("create table foo (name text)")
-	for i := 1; i <= 1000; i++ {
+	for i := 1; i <= 10; i++ {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 

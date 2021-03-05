@@ -67,7 +67,7 @@ func (h FileHeader) WriteTo(w io.Writer) (int64, error) {
 	binary.BigEndian.PutUint32(data[56:], 1)
 	binary.BigEndian.PutUint32(data[64:], 0)
 	binary.BigEndian.PutUint32(data[92:], 3)
-	binary.BigEndian.PutUint32(data[96:], 3027002)
+	binary.BigEndian.PutUint32(data[96:], 3034000)
 	if _, err := w.Write(data); err != nil {
 		return 0, err
 	}

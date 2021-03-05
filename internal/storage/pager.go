@@ -23,7 +23,6 @@ type Pager interface {
 	Read(page int) (*MemPage, error)
 	Write(pages ...*MemPage) error
 	Allocate(pageType PageType) (*MemPage, error)
-	Reserve() int
 }
 
 // Open opens a new pager using the path specified.
@@ -186,13 +185,6 @@ func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
 		Data:       make([]byte, p.fileHeader.PageSize),
 	}
 	return page, nil
-}
-
-// Reserve reserves a page number
-func (p *pager) Reserve() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.nextPageIndex()
 }
 
 func (p *pager) nextPageIndex() int {
