@@ -1,9 +1,9 @@
 package storage
 
 // NewPageHeader creates a new PageHeader
-func NewPageHeader(t PageType, pageSize uint16) PageHeader {
+func NewPageHeader(pageType PageType, pageSize uint16) PageHeader {
 	return PageHeader{
-		Type:                t,
+		Type:                pageType,
 		CellsOffset:         pageSize,
 		FreeBlock:           0,
 		NumCells:            0,
@@ -62,5 +62,5 @@ type PageHeader struct {
 	FragmentedFreeBytes byte
 
 	// RightPage internal nodes only
-	RightPage uint32
+	RightPage int
 }

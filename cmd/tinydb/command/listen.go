@@ -62,7 +62,10 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 	defer ln.Close()
 
-	dbEngine := engine.Start(config)
+	dbEngine, err := engine.Start(config)
+	if err != nil {
+		return 1
+	}
 
 	for {
 		conn, err := ln.Accept()

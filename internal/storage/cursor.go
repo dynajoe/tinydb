@@ -21,10 +21,11 @@ type Cursor struct {
 	pageNumber int
 	cellIndex  int
 	pager      Pager
+	wal        *WAL
 	memPage    *MemPage
 }
 
-func NewCursor(pager Pager, typ CursorType, pageNumber int, name string) (*Cursor, error) {
+func NewCursor(pager Pager, wal *WAL, typ CursorType, pageNumber int, name string) (*Cursor, error) {
 	pg, err := pager.Read(pageNumber)
 	if err != nil {
 		return nil, err
@@ -32,6 +33,7 @@ func NewCursor(pager Pager, typ CursorType, pageNumber int, name string) (*Curso
 	return &Cursor{
 		Name:       name,
 		pager:      pager,
+		wal:        wal,
 		pageNumber: pageNumber,
 		memPage:    pg,
 		cellIndex:  0,
@@ -43,7 +45,7 @@ func (p *Cursor) Close() {
 
 }
 
-func (c *Cursor) CurrentCell() (Record, error) {
+func (c *Cursor) CurrentCell() (*Record, error) {
 	// TODO: assumes always leaf page
 	offset := 8
 	if c.memPage.PageNumber == 1 {
@@ -57,8 +59,8 @@ func (c *Cursor) CurrentCell() (Record, error) {
 	return ReadRecord(reader)
 }
 
-func (c *Cursor) Insert(record Record) error {
-	btreeTable := NewBTreeTable(c.pageNumber, c.pager)
+func (c *Cursor) Insert(record *Record) error {
+	btreeTable := NewBTreeTable(c.pageNumber, c.pager, c.wal)
 	return btreeTable.Insert(record)
 }
 

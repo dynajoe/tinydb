@@ -43,7 +43,7 @@ const (
 // WAL represents a write ahead log
 type WAL struct {
 	file             *os.File
-	pageSize         uint32
+	pageSize         uint16
 	checkpointNumber uint32
 	salt1            uint32
 	salt2            uint32
@@ -52,23 +52,17 @@ type WAL struct {
 	mu *sync.RWMutex
 }
 
-func (w *WAL) Init(path string, pageSize uint32) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	f, err := os.OpenFile(path, os.O_RDWR, 0666)
+func OpenWAL(path string, pageSize int) (*WAL, error) {
+	f, err := os.OpenFile(path+"-wal", os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		return err
-	}
-	w.file = f
-	w.pageSize = pageSize
-
-	// Add header
-	if err := w.writeHeader(); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return &WAL{
+		file:     f,
+		pageSize: uint16(pageSize),
+		mu:       &sync.RWMutex{},
+	}, nil
 }
 
 func (w *WAL) Write(p *MemPage, isCommit bool) error {
@@ -118,7 +112,7 @@ func (w *WAL) writeHeader() error {
 
 	binary.BigEndian.PutUint32(header[0:4], WALMagicNumber)
 	binary.BigEndian.PutUint32(header[4:8], WALFileFormat)
-	binary.BigEndian.PutUint32(header[8:12], w.pageSize)
+	binary.BigEndian.PutUint32(header[8:12], uint32(w.pageSize))
 	binary.BigEndian.PutUint32(header[12:16], w.checkpointNumber)
 	binary.BigEndian.PutUint32(header[16:20], w.salt1)
 	binary.BigEndian.PutUint32(header[20:24], w.salt2)

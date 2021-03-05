@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"path"
 	"sync"
 
@@ -18,6 +19,7 @@ type Config struct {
 	DataDir           string `yaml:"data_directory"`
 	Addr              string `yaml:"listen"`
 	UseVirtualMachine bool   `yaml:"use_virtual_machine"`
+	PageSize          int    `yaml:"page_size"`
 }
 
 // Engine holds metadata and indexes about the database
@@ -27,6 +29,7 @@ type Engine struct {
 	Log               *log.Logger
 	Config            *Config
 	Pager             storage.Pager
+	WAL               *storage.WAL
 	adminLock         sync.Mutex
 	useVirtualMachine bool
 }
@@ -37,7 +40,7 @@ type ColumnList []string
 // ResultSet is the result of a query; rows are provided asynchronously
 type ResultSet struct {
 	Columns ColumnList
-	Rows    <-chan Row
+	Rows    <-chan *Row
 	Error   <-chan error
 }
 
@@ -47,15 +50,27 @@ type Row struct {
 }
 
 // Start initializes a new TinyDb database engine
-func Start(config *Config) *Engine {
+func Start(config *Config) (*Engine, error) {
 	log.Infof("Starting database engine [DataDir: %s]", config.DataDir)
+
+	if config.PageSize < 1024 {
+		return nil, errors.New("page size must be greater than or equal to 1024")
+	}
 
 	tables := loadTableDefinitions(config)
 	indexes := buildIndexes(config, tables)
 	logger := log.New()
-	pager, err := storage.Open(path.Join(config.DataDir, "tiny.db"))
+	dbPath := path.Join(config.DataDir, "tiny.db")
+
+	pager, err := storage.Open(dbPath, config.PageSize)
 	if err != nil {
-		panic("failed to open database")
+		return nil, err
+	}
+
+	// Initialize WAL.
+	wal, err := storage.OpenWAL(dbPath, config.PageSize)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Engine{
@@ -64,8 +79,9 @@ func Start(config *Config) *Engine {
 		Config:            config,
 		Log:               logger,
 		Pager:             pager,
+		WAL:               wal,
 		useVirtualMachine: config.UseVirtualMachine,
-	}
+	}, nil
 }
 
 // Command executes a command against the database engine
@@ -81,8 +97,8 @@ func (e *Engine) Command(text string) (*ResultSet, error) {
 
 	// TODO: think about the concurrency model some.
 
-	program := virtualmachine.NewProgram(e.Pager, instructions)
-	rowChan := make(chan Row)
+	program := virtualmachine.NewProgram(e.Pager, e.WAL, instructions)
+	rowChan := make(chan *Row)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -94,7 +110,7 @@ func (e *Engine) Command(text string) (*ResultSet, error) {
 	go func() {
 		defer close(rowChan)
 		for r := range program.Results() {
-			rowChan <- Row{
+			rowChan <- &Row{
 				Data: r,
 			}
 		}
