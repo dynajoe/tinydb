@@ -20,6 +20,14 @@ type InteriorNode struct {
 	Key       uint32
 }
 
+func (r InteriorNode) ToBytes() ([]byte, error) {
+	buf := bytes.Buffer{}
+	if err := r.Write(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // Write writes an interior node to the specified writer
 func (r InteriorNode) Write(bs io.ByteWriter) error {
 	recordBuffer := bytes.Buffer{}
@@ -107,16 +115,18 @@ func (b *BTreeTable) Insert(r *Record) error {
 			}
 
 			// Allocate a new page, update internal node right pointer.
-			destPage, err = b.pager.Allocate(PageTypeInternal)
+			destPage, err = b.pager.Allocate(PageTypeLeaf)
 			if err != nil {
 				return err
 			}
 			root.RightPage = destPage.PageNumber
 
 			// Add link to the newly added page.
-			buf := bytes.Buffer{}
-			internalNode.Write(&buf)
-			root.AddCell(buf.Bytes())
+			interiorCell, err := internalNode.ToBytes()
+			if err != nil {
+				return err
+			}
+			root.AddCell(interiorCell)
 
 			// Write the record
 			destPage.AddCell(recordBytes)
@@ -151,7 +161,7 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 	}
 
 	// Copy the data to the left
-	copy(leftPage.Data, p.Data)
+	p.CopyTo(leftPage)
 
 	// Update the header to make the root an internal page
 	p.PageHeader = NewPageHeader(PageTypeInternal, uint16(len(p.Data)))
@@ -163,9 +173,11 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 		Key:       maxRowID,
 	}
 
-	buf := bytes.Buffer{}
-	cell.Write(&buf)
-	p.AddCell(buf.Bytes())
+	cellBytes, err := cell.ToBytes()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	p.AddCell(cellBytes)
 
 	return p, leftPage, rightPage, nil
 }

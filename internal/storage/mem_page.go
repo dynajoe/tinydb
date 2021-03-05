@@ -13,27 +13,12 @@ type MemPage struct {
 }
 
 func (p *MemPage) Write(w io.Writer) error {
-	// Page one is a special case
-	// The page header starts after the file header
-	// It is expected that the page header
-	// is already written to the data at indexes 0-99
-	offset := 0
+	headerOffset := 0
 	if p.PageNumber == 1 {
-		offset = 100
+		headerOffset = 100
 	}
 
-	header := p.Data[offset : offset+8]
-	header[0] = byte(p.Type)
-	binary.BigEndian.PutUint16(header[1:3], p.FreeBlock)
-	binary.BigEndian.PutUint16(header[3:5], p.NumCells)
-	binary.BigEndian.PutUint16(header[5:7], p.CellsOffset)
-	header[7] = p.FragmentedFreeBytes
-
-	if p.Type == PageTypeInternal || p.Type == PageTypeInternalIndex {
-		binary.BigEndian.PutUint32(header[8:12], uint32(p.RightPage))
-	}
-
-	if _, err := w.Write(p.Data[offset:]); err != nil {
+	if _, err := w.Write(p.Data[headerOffset:]); err != nil {
 		return err
 	}
 
@@ -58,9 +43,19 @@ func (p *MemPage) Fits(count int) bool {
 }
 
 func (p *MemPage) AddCell(data []byte) {
-	cellOffsetPointer := 8 + p.NumCells*2
+	headerOffset := 0
 	if p.PageNumber == 1 {
-		cellOffsetPointer = cellOffsetPointer + 100
+		headerOffset = 100
+	}
+
+	headerLen := 8
+	if p.Type == PageTypeInternal || p.Type == PageTypeInternalIndex {
+		headerLen = 12
+	}
+
+	cellOffsetPointer := headerLen + int(p.NumCells*2)
+	if p.PageNumber == 1 {
+		cellOffsetPointer = cellOffsetPointer + headerOffset
 	}
 
 	cellLength := uint16(len(data))
@@ -77,4 +72,21 @@ func (p *MemPage) AddCell(data []byte) {
 
 	// Update number of cells in this page
 	p.NumCells = p.NumCells + 1
+
+	// Update the header
+	header := p.Data[headerOffset:]
+	header[0] = byte(p.Type)
+	binary.BigEndian.PutUint16(header[1:3], p.FreeBlock)
+	binary.BigEndian.PutUint16(header[3:5], p.NumCells)
+	binary.BigEndian.PutUint16(header[5:7], p.CellsOffset)
+	header[7] = p.FragmentedFreeBytes
+
+	if p.Type == PageTypeInternal || p.Type == PageTypeInternalIndex {
+		binary.BigEndian.PutUint32(header[8:12], uint32(p.RightPage))
+	}
+}
+
+func (p *MemPage) CopyTo(dst *MemPage) {
+	dst.PageHeader = p.PageHeader
+	copy(dst.Data, p.Data)
 }
