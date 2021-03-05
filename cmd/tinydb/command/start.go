@@ -26,11 +26,14 @@ func (i *StartCommand) Synopsis() string {
 
 func (i *StartCommand) Run(args []string) int {
 	os.Remove("/Users/joe/Desktop/sqlite/tiny.db")
-	db := engine.Start(&engine.Config{
+	db, err := engine.Start(&engine.Config{
 		DataDir: "/Users/joe/Desktop/sqlite/",
 	})
+	if err != nil {
+		return 1
+	}
 
-	_, err := db.Command(strings.TrimSpace(`CREATE TABLE person(name text)`))
+	_, err = db.Command(strings.TrimSpace(`CREATE TABLE person(name text)`))
 	if err != nil {
 		return 1
 	}

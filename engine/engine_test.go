@@ -23,13 +23,14 @@ type VMTestSuite struct {
 func (s *VMTestSuite) SetupTest() {
 	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
 	s.tempDir = tempDir
-	if err != nil {
-		s.Error(err)
-	}
-	s.engine = Start(&Config{
+	s.NoError(err)
+
+	s.engine, err = Start(&Config{
 		DataDir:           tempDir,
 		UseVirtualMachine: true,
+		PageSize:          4096,
 	})
+	s.NoError(err)
 
 	db, err := sql.Open("sqlite3", s.tempDir+"/sqlite.db")
 	s.NoError(err)
@@ -52,7 +53,9 @@ func (s *VMTestSuite) TestSimple() {
 
 	results, err := s.engine.Command("select * from foo")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
 
 	s.NotEmpty(rows)
 	s.Equal("bar", rows[0].Data[0].(string))
@@ -65,7 +68,10 @@ func (s *VMTestSuite) TestSimple_WithFilter() {
 
 	results, err := s.engine.Command("select * from foo where name = 'bar'")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{{"bar"}}
 	s.Len(rows, len(expectedResults))
 	for i, e := range expectedResults {
@@ -81,7 +87,10 @@ func (s *VMTestSuite) TestSimple_WithFilter2() {
 
 	results, err := s.engine.Command("select * from foo where name = 'baz' OR name = 'bam'")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{
 		{"bam"},
 		{"baz"},
@@ -100,7 +109,10 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 
 	results, err := s.engine.Command("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{
 		{"1"},
 		{"2"},
@@ -122,7 +134,10 @@ func (s *VMTestSuite) TestSimple_WithFilter4() {
 
 	results, err := s.engine.Command("select * from foo where name = '1' AND name != '2'")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{
 		{"1"},
 	}
@@ -140,7 +155,10 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAnd() {
 
 	results, err := s.engine.Command("select * from foo where (name = '1' AND name != '2') OR name = '3'")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{
 		{"1"},
 		{"3"},
@@ -159,7 +177,10 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 
 	results, err := s.engine.Command("select * from foo where name = '1' AND (name != '2' OR name = '3')")
 	s.NoError(err)
-	rows := collectRows(results)
+
+	rows, err := collectRows(results)
+	s.NoError(err)
+
 	expectedResults := [][]interface{}{
 		{"1"},
 	}
@@ -177,10 +198,20 @@ func (s *VMTestSuite) AssertCommand(cmd string) {
 	collectRows(results)
 }
 
-func collectRows(rs *ResultSet) []Row {
-	var rows []Row
-	for r := range rs.Rows {
-		rows = append(rows, r)
+func collectRows(rs *ResultSet) ([]*Row, error) {
+	var rows []*Row
+outer:
+	for {
+		select {
+		case err := <-rs.Error:
+			return nil, err
+		case r := <-rs.Rows:
+			if r == nil {
+				break outer
+			}
+			rows = append(rows, r)
+		}
 	}
-	return rows
+
+	return rows, nil
 }

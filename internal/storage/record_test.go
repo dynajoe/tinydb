@@ -59,8 +59,6 @@ func TestWriteRecord_WithText(t *testing.T) {
 	assert := require.New(t)
 
 	expectedText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et"
-	pageSize := 256
-	page := NewPage(2, uint16(pageSize))
 	record := NewRecord(5, []*Field{
 		{
 			Type: Integer,
@@ -72,7 +70,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 		},
 	})
 
-	err := WriteRecord(page, record)
+	data, err := record.ToBytes()
 	assert.NoError(err)
 
 	expectedCellBytes := []byte{
@@ -86,7 +84,7 @@ func TestWriteRecord_WithText(t *testing.T) {
 	binary.PutUvarint(expectedCellBytes[4:6], uint64(len(expectedText)*2+13)) // RecordHeader[text type]
 	expectedCellBytes = append(expectedCellBytes, []byte(expectedText)...)    // RecordData[text]
 
-	assert.Equal(expectedCellBytes, page.Data[page.CellsOffset:])
+	assert.Equal(expectedCellBytes, data)
 }
 
 func TestNewMasterTableRecord(t *testing.T) {

@@ -22,13 +22,13 @@ type pager struct {
 type Pager interface {
 	Read(page int) (*MemPage, error)
 	Write(pages ...*MemPage) error
-	Allocate() (*MemPage, error)
+	Allocate(pageType PageType) (*MemPage, error)
 	Reserve() int
 }
 
 // Open opens a new pager using the path specified.
 // The pager owns the file.
-func Open(path string) (Pager, error) {
+func Open(path string, pageSize int) (Pager, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, os.ModePerm)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func Open(path string) (Pager, error) {
 
 	// Set up the file header for the new database
 	if info.Size() == 0 {
-		header := NewFileHeader()
+		header := NewFileHeader(uint16(pageSize))
 		pager := &pager{
 			fileHeader: header,
 			file:       file,
@@ -56,11 +56,9 @@ func Open(path string) (Pager, error) {
 		}
 
 		// Allocate and then persist the first page
-		pageOne, err := pager.Allocate()
-		if err != nil {
+		if pageOne, err := pager.Allocate(PageTypeLeaf); err != nil {
 			return nil, err
-		}
-		if err := pager.Write(pageOne); err != nil {
+		} else if err := pager.Write(pageOne); err != nil {
 			return nil, err
 		}
 
@@ -81,30 +79,6 @@ func Open(path string) (Pager, error) {
 		pageCache:  make(map[int]*MemPage),
 		mu:         &sync.RWMutex{},
 	}, nil
-}
-
-// NewPage creates a new database page.
-//
-// Page 1 of a database file is the root page of a table b-tree that
-// holds a special table named "sqlite_master" (or "sqlite_temp_master" in
-// the case of a TEMP database) which stores the complete database schema.
-// The structure of the sqlite_master table is as if it had been
-// created using the following SQL:
-//
-// CREATE TABLE sqlite_master(
-//    type text,
-//    name text,
-//    tbl_name text,
-//    rootpage integer,
-//    sql text
-// );
-func NewPage(page int, pageSize uint16) *MemPage {
-	header := NewPageHeader(PageTypeLeaf, pageSize)
-	return &MemPage{
-		PageHeader: header,
-		PageNumber: page,
-		Data:       make([]byte, pageSize),
-	}
 }
 
 // Read reads a full page from disk
@@ -187,12 +161,30 @@ func (p *pager) Write(pages ...*MemPage) error {
 }
 
 // Allocate virtually allocates a new page in the pager for a TablePage
-func (p *pager) Allocate() (*MemPage, error) {
+// Page 1 of a database file is the root page of a table b-tree that
+// holds a special table named "sqlite_master" (or "sqlite_temp_master" in
+// the case of a TEMP database) which stores the complete database schema.
+// The structure of the sqlite_master table is as if it had been
+// created using the following SQL:
+//
+// CREATE TABLE sqlite_master(
+//    type text,
+//    name text,
+//    tbl_name text,
+//    rootpage integer,
+//    sql text
+// );
+
+func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	pageNumber := p.nextPageIndex()
-	page := NewPage(pageNumber, p.fileHeader.PageSize)
+	page := &MemPage{
+		PageHeader: NewPageHeader(pageType, p.fileHeader.PageSize),
+		PageNumber: pageNumber,
+		Data:       make([]byte, p.fileHeader.PageSize),
+	}
 	return page, nil
 }
 
@@ -247,7 +239,7 @@ func readPage(page int, pageSize uint16, reader io.Reader) (*MemPage, error) {
 		RightPage:           0,
 	}
 	if header.Type == PageTypeInternal || header.Type == PageTypeInternalIndex {
-		header.RightPage = binary.BigEndian.Uint32(data[8:12])
+		header.RightPage = int(binary.BigEndian.Uint32(data[8:12]))
 	}
 
 	return &MemPage{

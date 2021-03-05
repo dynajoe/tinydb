@@ -38,9 +38,13 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 	}
 
 	rowChan := storage.RowReader(pageOne)
-	for record := range rowChan {
-		if name == record.Fields[1].Data.(string) {
-			tableDefinition, err := tableDefinitionFromRecord(record)
+	for row := range rowChan {
+		if row.Err != nil {
+			return nil, err
+		}
+
+		if name == row.Record.Fields[1].Data.(string) {
+			tableDefinition, err := tableDefinitionFromRecord(row.Record)
 			if err != nil {
 				return nil, err
 			}
@@ -52,7 +56,7 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 	return nil, fmt.Errorf("table not found: %s", name)
 }
 
-func tableDefinitionFromRecord(record storage.Record) (*TableDefinition, error) {
+func tableDefinitionFromRecord(record *storage.Record) (*TableDefinition, error) {
 	createSQL := record.Fields[4].Data.(string)
 	stmt, err := tsql.Parse(createSQL)
 	if err != nil {

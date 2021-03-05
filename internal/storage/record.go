@@ -43,11 +43,19 @@ type Record struct {
 }
 
 // NewRecord creates a database record from a set of fields
-func NewRecord(key uint32, fields []*Field) Record {
-	return Record{
+func NewRecord(key uint32, fields []*Field) *Record {
+	return &Record{
 		RowID:  key,
 		Fields: fields,
 	}
+}
+
+func (r Record) ToBytes() ([]byte, error) {
+	buf := bytes.Buffer{}
+	if err := r.Write(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // Write writes a record to the specified writer
@@ -128,19 +136,6 @@ func (r Record) Write(bs io.ByteWriter) error {
 	return nil
 }
 
-func makeInteriorPage(pageNumber int, leftPage *MemPage, rightPage *MemPage) *MemPage {
-	interiorPage := NewPage(pageNumber, 4096)
-	header := NewPageHeader(PageTypeInternal, 4096)
-	header.RightPage = uint32(rightPage.PageNumber)
-
-	return &MemPage{
-		PageHeader: header,
-		PageNumber: pageNumber,
-		Data:       make([]byte, 4096),
-	}
-	return interiorPage
-}
-
 // WriteInteriorEntry writes B-Tree Interior Cell (header 0x05):
 // A 4-byte big-endian page number which is the left child pointer.
 // A varint which is the integer key
@@ -162,53 +157,19 @@ func WriteInteriorEntry(p *MemPage, key int, leftChild uint32) {
 // interior page key: 00
 // last bytes 03 07
 
-func WriteRecord(p *MemPage, r Record) error {
+func WriteRecord(p *MemPage, r *Record) error {
 	buf := bytes.Buffer{}
 	if err := r.Write(&buf); err != nil {
 		return err
 	}
 
 	recordBytes := buf.Bytes()
-
-	cellOffsetPointer := 8 + p.NumCells*2
-	if p.PageNumber == 1 {
-		cellOffsetPointer = cellOffsetPointer + 100
-	}
-
-	recordLength := uint16(len(recordBytes))
-	cellOffset := p.CellsOffset - recordLength
-
-	// would adding this record exceed the page capacity?
-	newPageRequired := false
-	if cellOffsetPointer+2 > cellOffset {
-		newPageRequired = true
-	}
-
-	// TODO: enable creating interior pages
-	if newPageRequired {
-		panic("interior b-tree page required but not supported")
-	}
-
-	// Split leaf node
-
-	// todo: need to ensure order of cell ptrs
-	// sorted by rowid
-	// Write the offset of the data cell
-	binary.BigEndian.PutUint16(p.Data[cellOffsetPointer:], cellOffset)
-
-	// Update the page data
-	copy(p.Data[cellOffset:], recordBytes)
-
-	// Update cells offset for the next page
-	p.CellsOffset = cellOffset
-
-	// Update number of cells in this page
-	p.NumCells = p.NumCells + 1
+	p.AddCell(recordBytes)
 
 	return nil
 }
 
-func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName string, rootPage int, sqlText string) Record {
+func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName string, rootPage int, sqlText string) *Record {
 	return NewRecord(rowID, []*Field{
 		{
 			Type: Text,
@@ -239,15 +200,15 @@ func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName 
 	})
 }
 
-func ReadRecord(r io.ByteReader) (Record, error) {
+func ReadRecord(r io.ByteReader) (*Record, error) {
 	_, _, err := ReadVarint(r)
 	if err != nil {
-		return Record{}, err
+		return nil, err
 	}
 
 	rowID, _, err := ReadVarint(r)
 	if err != nil {
-		return Record{}, err
+		return nil, err
 	}
 
 	var fields []*Field
@@ -258,7 +219,7 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 	for recordHeaderLen > 0 {
 		colType, n, err := ReadVarint(r)
 		if err != nil {
-			return Record{}, err
+			return nil, err
 		}
 
 		var sqlType SQLType
@@ -310,7 +271,7 @@ func ReadRecord(r io.ByteReader) (Record, error) {
 		}
 	}
 
-	return Record{
+	return &Record{
 		RowID:  uint32(rowID),
 		Fields: fields,
 	}, nil

@@ -17,6 +17,6 @@ func TestPager_Write(t *testing.T) {
 	testDir, err := ioutil.TempDir("", "tinydb_test")
 	assert.NoError(err)
 
-	_, err = Open(path.Join(testDir, "db.tdb"))
+	_, err = Open(path.Join(testDir, "db.tdb"), 1024)
 	assert.NoError(err)
 }

@@ -30,7 +30,7 @@ func (p *MemPage) Write(w io.Writer) error {
 	header[7] = p.FragmentedFreeBytes
 
 	if p.Type == PageTypeInternal || p.Type == PageTypeInternalIndex {
-		binary.BigEndian.PutUint32(header[8:12], p.RightPage)
+		binary.BigEndian.PutUint32(header[8:12], uint32(p.RightPage))
 	}
 
 	if _, err := w.Write(p.Data[offset:]); err != nil {
@@ -40,20 +40,20 @@ func (p *MemPage) Write(w io.Writer) error {
 	return nil
 }
 
-func (p *MemPage) calculateOffsets(data []byte) (uint16, uint16) {
+func (p *MemPage) calculateOffsets(count int) (uint16, uint16) {
 	cellOffsetPointer := 8 + p.NumCells*2
 	if p.PageNumber == 1 {
 		cellOffsetPointer = cellOffsetPointer + 100
 	}
 
-	recordLength := uint16(len(data))
+	recordLength := uint16(count)
 	cellOffset := p.CellsOffset - recordLength
 
 	return cellOffsetPointer, cellOffset
 }
 
-func (p *MemPage) Fits(data []byte) bool {
-	cellOffsetPointer, cellOffset := p.calculateOffsets(data)
+func (p *MemPage) Fits(count int) bool {
+	cellOffsetPointer, cellOffset := p.calculateOffsets(count)
 	return cellOffsetPointer+2 <= cellOffset
 }
 

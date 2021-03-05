@@ -141,6 +141,7 @@ type Program interface {
 type program struct {
 	pc           int
 	pager        storage.Pager
+	wal          *storage.WAL
 	instructions []*Instruction
 	regs         []*register
 	cursors      []*storage.Cursor
@@ -150,7 +151,7 @@ type program struct {
 	err          string
 }
 
-func NewProgram(pager storage.Pager, i []*Instruction) Program {
+func NewProgram(pager storage.Pager, wal *storage.WAL, i []*Instruction) Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -166,6 +167,7 @@ func NewProgram(pager storage.Pager, i []*Instruction) Program {
 		pc:           0,
 		regs:         regs,
 		pager:        pager,
+		wal:          wal,
 		results:      make(chan []interface{}),
 	}
 }
@@ -266,7 +268,7 @@ func (p *program) step() int {
 		cursor := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo, i.P4.(string))
+		f, err := storage.NewCursor(p.pager, p.wal, storage.CURSOR_READ, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open read error")
 		}
@@ -275,7 +277,7 @@ func (p *program) step() int {
 		cursorIndex := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo, i.P4.(string))
+		f, err := storage.NewCursor(p.pager, p.wal, storage.CURSOR_WRITE, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open write error")
 		}
@@ -351,7 +353,7 @@ func (p *program) step() int {
 		p.results <- result
 	case OpCreateTable:
 		// Allocate a page for the new table
-		rootPage, err := p.pager.Allocate()
+		rootPage, err := p.pager.Allocate(storage.PageTypeLeaf)
 		if err != nil {
 			return p.error("unable to allocate page for table")
 		}

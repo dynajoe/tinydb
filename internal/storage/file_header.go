@@ -18,9 +18,9 @@ type FileHeader struct {
 }
 
 // NewFileHeader creates a new FileHeader
-func NewFileHeader() FileHeader {
+func NewFileHeader(pageSize uint16) FileHeader {
 	return FileHeader{
-		PageSize:          4096,
+		PageSize:          pageSize,
 		FileChangeCounter: 0,
 		SchemaVersion:     0,
 		SizeInPages:       1,
