@@ -51,6 +51,22 @@ func (r InteriorNode) Write(bs io.ByteWriter) error {
 	return nil
 }
 
+func ReadInteriorNode(data []byte) (InteriorNode, error) {
+	reader := bytes.NewReader(data)
+
+	var leftChild uint32
+	if err := binary.Read(reader, binary.BigEndian, &leftChild); err != nil {
+		return InteriorNode{}, err
+	}
+
+	key, _, err := ReadVarint(reader)
+	if err != nil {
+		return InteriorNode{}, err
+	}
+
+	return InteriorNode{LeftChild: leftChild, Key: uint32(key)}, nil
+}
+
 func NewBTreeTable(rootPage int, p Pager, wal *WAL) *BTreeTable {
 	return &BTreeTable{
 		wal:      wal,

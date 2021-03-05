@@ -200,13 +200,22 @@ func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName 
 	})
 }
 
-func ReadRecord(r io.ByteReader) (*Record, error) {
-	_, _, err := ReadVarint(r)
+func ReadRecordHeader(r io.ByteReader) (uint64, uint64, error) {
+	recordSize, _, err := ReadVarint(r)
 	if err != nil {
-		return nil, err
+		return 0, 0, err
 	}
 
 	rowID, _, err := ReadVarint(r)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return recordSize, rowID, nil
+}
+
+func ReadRecord(r io.ByteReader) (*Record, error) {
+	_, rowID, err := ReadRecordHeader(r)
 	if err != nil {
 		return nil, err
 	}

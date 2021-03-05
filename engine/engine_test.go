@@ -212,7 +212,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 }
 
 func (s *VMTestSuite) AssertCommand(cmd string) {
-	s.sqlite.Exec(cmd)
+	//s.sqlite.Exec(cmd)
 
 	results, err := s.engine.Command(cmd)
 	s.NoError(err)
