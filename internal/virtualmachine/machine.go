@@ -283,8 +283,7 @@ func (p *program) step() int {
 		}
 		p.cursors[cursorIndex] = f
 	case OpClose:
-		cursor := p.cursors[i.P1]
-		cursor.Close()
+		p.cursors[i.P1] = nil
 	case OpRewind:
 		cursor := p.cursors[i.P1]
 		jmpAddr := i.P2
