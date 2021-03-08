@@ -12,18 +12,18 @@ import (
 
 // ColumnDefinition represents a specification for a column in a table
 type ColumnDefinition struct {
-	Name         string          `json:"name"`
-	Type         storage.SQLType `json:"type"`
-	Offset       int             `json:"offset"`
-	PrimaryKey   bool            `json:"is_primary_key"`
-	DefaultValue interface{}     `json:"default_value"`
+	Name         string
+	Type         storage.SQLType
+	Offset       int
+	PrimaryKey   bool
+	DefaultValue interface{}
 }
 
 type TableDefinition struct {
-	Name     string              `json:"name"`
-	RawText  string              `json:"raw_text"`
-	Columns  []*ColumnDefinition `json:"columns"`
-	RootPage int                 `json:"root_page"`
+	Name     string
+	RawText  string
+	Columns  []*ColumnDefinition
+	RootPage int
 }
 
 var tableCache = make(map[string]*TableDefinition)

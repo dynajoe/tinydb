@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/joeandaverde/tinydb/engine"
 	"gopkg.in/yaml.v2"
 )
@@ -69,7 +71,7 @@ func (i *ListenCommand) Run(args []string) int {
 
 	for {
 		conn, err := ln.Accept()
-		dbEngine.Log.Infof("client connected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
+		log.Infof("client connected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
 
 		select {
 		case <-i.ShutDownCh:
@@ -85,10 +87,11 @@ func (i *ListenCommand) Run(args []string) int {
 
 func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan struct{}) {
 	defer func() {
-		dbEngine.Log.Infof("client disconnected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
+		log.Infof("client disconnected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
 		defer conn.Close()
 	}()
 
+	db := dbEngine.Connect()
 	scanner := bufio.NewScanner(conn)
 
 	scanner.Split(onSemicolon)
@@ -106,16 +109,16 @@ func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan 
 			continue
 		}
 
-		result, err := dbEngine.Command(text)
+		result, err := db.Exec(text)
 		writer := bufio.NewWriter(conn)
 
 		if err != nil {
-			dbEngine.Log.Error(err)
+			log.Error(err)
 			_, _ = writer.WriteString(err.Error())
 			continue
 		}
 
-		for r := range result.Rows {
+		for r := range result.Results {
 			_, _ = writer.WriteString(fmt.Sprintf("%s\n", r.Data))
 		}
 
@@ -123,7 +126,7 @@ func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan 
 	}
 
 	if err := scanner.Err(); err != nil {
-		dbEngine.Log.Errorf("Connection Error: %s", err.Error())
+		log.Errorf("Connection Error: %s", err.Error())
 	}
 }
 

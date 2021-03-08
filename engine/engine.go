@@ -16,6 +16,7 @@ import (
 type Config struct {
 	DataDir  string `yaml:"data_directory"`
 	PageSize int    `yaml:"page_size"`
+	Addr     string `yaml:"listen_address"`
 }
 
 // Engine holds metadata and indexes about the database
