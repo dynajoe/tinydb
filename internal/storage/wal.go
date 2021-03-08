@@ -43,7 +43,7 @@ const (
 // WAL represents a write ahead log
 type WAL struct {
 	file             *os.File
-	pageSize         uint16
+	dbFile           *DbFile
 	checkpointNumber uint32
 	salt1            uint32
 	salt2            uint32
@@ -52,20 +52,20 @@ type WAL struct {
 	mu *sync.RWMutex
 }
 
-func OpenWAL(path string, pageSize int) (*WAL, error) {
-	f, err := os.OpenFile(path+"-wal", os.O_RDWR|os.O_CREATE, 0666)
+func OpenWAL(dbFile *DbFile) (*WAL, error) {
+	f, err := os.OpenFile(dbFile.path+"-wal", os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
 
 	return &WAL{
-		file:     f,
-		pageSize: uint16(pageSize),
-		mu:       &sync.RWMutex{},
+		file:   f,
+		dbFile: dbFile,
+		mu:     &sync.RWMutex{},
 	}, nil
 }
 
-func (w *WAL) Write(pageNumber int, data []byte, isCommit bool) error {
+func (w *WAL) WriteLog(pageNumber int, data []byte, isCommit bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -112,7 +112,7 @@ func (w *WAL) writeHeader() error {
 
 	binary.BigEndian.PutUint32(header[0:4], WALMagicNumber)
 	binary.BigEndian.PutUint32(header[4:8], WALFileFormat)
-	binary.BigEndian.PutUint32(header[8:12], uint32(w.pageSize))
+	binary.BigEndian.PutUint32(header[8:12], uint32(w.dbFile.pageSize))
 	binary.BigEndian.PutUint32(header[12:16], w.checkpointNumber)
 	binary.BigEndian.PutUint32(header[16:20], w.salt1)
 	binary.BigEndian.PutUint32(header[20:24], w.salt2)
@@ -141,7 +141,7 @@ func (w *WAL) writeHeader() error {
 }
 
 func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, error) {
-	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.pageSize)
+	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.dbFile.pageSize)
 
 	binary.BigEndian.PutUint32(header[0:4], uint32(pageNumber))
 
@@ -169,3 +169,22 @@ func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, 
 
 	return pageBuffer.Bytes(), nil
 }
+
+func (s *WAL) PageSize() int {
+	return s.dbFile.PageSize()
+}
+
+func (s *WAL) TotalPages() int {
+	return s.dbFile.TotalPages()
+}
+
+func (s *WAL) Read(page int) ([]byte, error) {
+	return s.dbFile.Read(page)
+}
+
+func (s *WAL) Write(page int, data []byte) error {
+	return s.dbFile.Write(page, data)
+}
+
+var _ PageReader = (*WAL)(nil)
+var _ PageWriter = (*WAL)(nil)
