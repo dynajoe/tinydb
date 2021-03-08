@@ -120,19 +120,27 @@ func (p *pager) Flush() error {
 		return errors.New("flush: cannot modify pager in read state")
 	}
 
+	var dirtyPages []storage.Page
+	var dirtyMemPages []*MemPage
 	for _, page := range p.pageCache {
 		if !page.dirty {
 			continue
 		}
 
-		if err := p.dst.Write(page.pageNumber, page.data); err != nil {
-			return err
-		}
-
-		page.dirty = false
+		dirtyPages = append(dirtyPages, storage.Page{PageNumber: page.pageNumber, Data: page.data})
+		dirtyMemPages = append(dirtyMemPages, page)
 	}
 
-	p.pageCount = p.src.TotalPages()
+	if len(dirtyPages) > 0 {
+		if err := p.dst.Write(dirtyPages...); err != nil {
+			return err
+		}
+		p.pageCount = p.src.TotalPages()
+	}
+
+	for _, p := range dirtyMemPages {
+		p.dirty = false
+	}
 
 	return nil
 }

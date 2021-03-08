@@ -50,6 +50,10 @@ func OpenDbFile(path string, pageSize int) (*DbFile, error) {
 	}, nil
 }
 
+func (s *DbFile) Path() string {
+	return s.path
+}
+
 func (s *DbFile) PageSize() int {
 	return s.pageSize
 }
@@ -80,30 +84,34 @@ func (s *DbFile) Read(page int) ([]byte, error) {
 	return data, nil
 }
 
-func (s *DbFile) Write(page int, data []byte) error {
+func (s *DbFile) Write(pages ...Page) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if page > s.totalPages+1 {
-		return errors.New("cannot grow the db file with a gap in pages")
+	for _, page := range pages {
+		if page.PageNumber > s.totalPages+1 {
+			return errors.New("cannot grow the db file with a gap in pages")
+		}
+
+		if page.PageNumber > s.totalPages {
+			s.totalPages = page.PageNumber
+		}
+
+		pageOffset := s.pageOffset(page.PageNumber)
+		if _, err := s.file.Seek(pageOffset, io.SeekStart); err != nil {
+			return err
+		}
+
+		readOffset := 0
+		if page.PageNumber == 1 {
+			readOffset = 100
+		}
+		if _, err := s.file.Write(page.Data[readOffset:]); err != nil {
+			return err
+		}
 	}
 
-	if page > s.totalPages {
-		s.totalPages = page
-	}
-
-	pageOffset := s.pageOffset(page)
-	if _, err := s.file.Seek(pageOffset, io.SeekStart); err != nil {
-		return err
-	}
-
-	readOffset := 0
-	if page == 1 {
-		readOffset = 100
-	}
-	if _, err := s.file.Write(data[readOffset:]); err != nil {
-		return err
-	} else if err := s.updateFileHeader(); err != nil {
+	if err := s.updateFileHeader(); err != nil {
 		return err
 	} else if err := s.file.Sync(); err != nil {
 		return err
