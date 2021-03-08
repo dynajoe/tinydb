@@ -22,6 +22,7 @@ type VMTestSuite struct {
 
 func (s *VMTestSuite) SetupTest() {
 	s.tempDir = "/Users/joe/tiny-test/"
+	_ = os.RemoveAll(s.tempDir)
 	s.NoError(os.MkdirAll(s.tempDir, os.ModePerm))
 
 	engine, err := Start(&Config{
@@ -38,21 +39,17 @@ func (s *VMTestSuite) SetupTest() {
 	s.sqlite = db
 }
 
-func (s *VMTestSuite) TearDownTest() {
-	if s.tempDir != "" {
-		_ = os.RemoveAll(s.tempDir)
-	}
-}
-
 func TestVMTestSuite(t *testing.T) {
 	suite.Run(t, new(VMTestSuite))
 }
 
 func (s *VMTestSuite) TestSimple_Btree() {
 	s.AssertCommand("create table foo (name text)")
+	s.AssertCommand("BEGIN")
 	for i := 0; i < 1000; i++ {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
+	s.AssertCommand("COMMIT")
 
 	results, err := s.conn.Exec("select * from foo where name = '999'")
 	s.NoError(err)
@@ -221,11 +218,10 @@ func (s *VMTestSuite) AssertCommand(cmd string) {
 
 func collectRows(rs *ResultSet) ([]*Row, error) {
 	var rows []*Row
-outer:
 	for {
 		r := <-rs.Results
 		if r == nil {
-			break outer
+			break
 		}
 		if r.Error != nil {
 			return nil, r.Error

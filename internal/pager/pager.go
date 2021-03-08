@@ -104,7 +104,7 @@ func (p *pager) Read(pageNumber int) (*MemPage, error) {
 // Write updates pages in the pager
 func (p *pager) Write(pages ...*MemPage) error {
 	if p.mode != ModeWrite {
-		return errors.New("cannot modify pager in read state")
+		return errors.New("write: cannot modify pager in read state")
 	}
 
 	for _, pg := range pages {
@@ -117,7 +117,7 @@ func (p *pager) Write(pages ...*MemPage) error {
 // Flush flushes all dirty pages to destination
 func (p *pager) Flush() error {
 	if p.mode != ModeWrite {
-		return errors.New("cannot modify pager in read state")
+		return errors.New("flush: cannot modify pager in read state")
 	}
 
 	for _, page := range p.pageCache {
@@ -164,7 +164,7 @@ func (p *pager) Reset() {
 // );
 func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
 	if p.mode != ModeWrite {
-		return nil, errors.New("cannot modify pager in read state")
+		return nil, errors.New("allocate: cannot modify pager in read state")
 	}
 
 	p.pageCount = p.pageCount + 1

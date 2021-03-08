@@ -18,12 +18,9 @@ type Connection struct {
 	engine     *Engine
 }
 
-// ColumnList represents a list of columns of a result set
-type ColumnList []string
-
 // ResultSet is the result of a query; rows are provided asynchronously
 type ResultSet struct {
-	Columns ColumnList
+	Columns []string
 	Results <-chan *Row
 }
 
@@ -48,20 +45,20 @@ func (c *Connection) Exec(command string) (*ResultSet, error) {
 	if stmt.Mutates() {
 		mode = pager.ModeWrite
 	}
-	pager, err := c.engine.GetPager(c, mode)
+	p, err := c.engine.getPager(c, mode)
 	if err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
 
 	// Prepare the program
-	preparedStmt, err := virtualmachine.Prepare(stmt, pager)
+	preparedStmt, err := virtualmachine.Prepare(stmt, p)
 	if err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
 
-	program := virtualmachine.NewProgram(c.flags, pager, preparedStmt)
+	program := virtualmachine.NewProgram(c.flags, p, preparedStmt)
 
 	rowChan := make(chan *Row)
 
@@ -88,7 +85,7 @@ func (c *Connection) Exec(command string) (*ResultSet, error) {
 		if forceRollback {
 			c.flags.AutoCommit = true
 			c.flags.Rollback = false
-			pager.Reset()
+			p.Reset()
 		}
 
 		// update auto commit flag
@@ -96,10 +93,10 @@ func (c *Connection) Exec(command string) (*ResultSet, error) {
 
 		if c.autoCommit {
 			if c.flags.Rollback {
-				pager.Reset()
+				p.Reset()
 				c.flags.Rollback = false
-			} else {
-				if err := pager.Flush(); err != nil {
+			} else if p.Mode() == pager.ModeWrite {
+				if err := p.Flush(); err != nil {
 					rowChan <- &Row{
 						Error: err,
 					}
@@ -109,7 +106,7 @@ func (c *Connection) Exec(command string) (*ResultSet, error) {
 
 		// AutoCommit mode doesn't need to hold on to a pager.
 		if c.flags.AutoCommit {
-			c.engine.ReturnPager(c)
+			c.engine.returnPager(c)
 		}
 	}()
 
