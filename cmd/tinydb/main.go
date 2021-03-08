@@ -12,17 +12,12 @@ import (
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		args = append(args, "start")
+		args = append(args, "listen")
 	}
 
 	commands := map[string]cli.CommandFactory{
 		"listen": func() (cli.Command, error) {
 			return &command.ListenCommand{
-				ShutDownCh: makeShutdownCh(),
-			}, nil
-		},
-		"start": func() (cli.Command, error) {
-			return &command.StartCommand{
 				ShutDownCh: makeShutdownCh(),
 			}, nil
 		},
