@@ -78,6 +78,7 @@ func Start(config *Config) (*Engine, error) {
 
 // Connect establishes a new connection to the database engine
 func (e *Engine) Connect() *Connection {
+	e.log.Debug("connect")
 	e.adminLock.Lock()
 	defer e.adminLock.Unlock()
 
@@ -90,12 +91,14 @@ func (e *Engine) Connect() *Connection {
 	}
 }
 
-// GetPager gets a pager from the available pool ensuring isolation
-func (e *Engine) GetPager(connection *Connection, mode pager.Mode) (pager.Pager, error) {
+// getPager gets a pager from the available pool ensuring isolation
+func (e *Engine) getPager(connection *Connection, mode pager.Mode) (pager.Pager, error) {
+	e.log.Debug("getPager", "connection_id", connection.id)
 	return e.pagerPool.Acquire(connection.id, mode)
 }
 
 // ReturnPager returns a pager to the available pool
-func (e *Engine) ReturnPager(connection *Connection) {
+func (e *Engine) returnPager(connection *Connection) {
+	e.log.Debug("returnPager", "connection_id", connection.id)
 	e.pagerPool.Release(connection.id)
 }

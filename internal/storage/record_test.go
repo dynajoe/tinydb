@@ -7,53 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecord_Write(t *testing.T) {
-	assert := require.New(t)
-	stringContent := "Databases"
-	h := NewRecord(1, []*Field{
-		{
-			Type: Integer,
-			Data: 23500,
-		},
-		{
-			Type: Text,
-			Data: stringContent,
-		},
-		{
-			Type: Integer,
-			Data: nil,
-		},
-		{
-			Type: Integer,
-			Data: int(42),
-		},
-	})
-
-	buf := bytes.Buffer{}
-	err := h.Write(&buf)
-	assert.NoError(err)
-
-	expectedPrefix := []byte{
-		// Cell Header
-		0x12, 0x1,
-		// Header Size (includes first byte)
-		5,
-		// Primary Key (Always NULL)
-		0,
-		// Text
-		0x1F,
-		// NULL
-		0,
-		// Integer
-		byte(Integer),
-		// End of Header
-		'D', 'a', 't', 'a', 'b', 'a', 's', 'e', 's',
-		0x0, 0x0, 0x0, 0x2A, // 42
-	}
-
-	assert.Equal(expectedPrefix, buf.Bytes()[:len(expectedPrefix)])
-}
-
 func TestNewMasterTableRecord(t *testing.T) {
 	assert := require.New(t)
 
