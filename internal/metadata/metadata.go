@@ -32,24 +32,34 @@ func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, err
 		return tableDefinition, nil
 	}
 
-	pageOne, err := pager.Read(1)
+	cursor, err := storage.NewCursor(pager, storage.CURSOR_READ, 1, name)
 	if err != nil {
 		return nil, err
 	}
 
-	rowChan := storage.RowReader(pageOne)
-	for row := range rowChan {
-		if row.Err != nil {
+	hasMore, err := cursor.Rewind()
+	if err != nil {
+		return nil, err
+	}
+
+	for hasMore {
+		record, err := cursor.CurrentCell()
+		if err != nil {
 			return nil, err
 		}
 
-		if name == row.Record.Fields[1].Data.(string) {
-			tableDefinition, err := tableDefinitionFromRecord(row.Record)
+		if name == record.Fields[1].Data.(string) {
+			tableDefinition, err := tableDefinitionFromRecord(record)
 			if err != nil {
 				return nil, err
 			}
 			tableCache[name] = tableDefinition
 			return tableDefinition, nil
+		}
+
+		hasMore, err = cursor.Next()
+		if err != nil {
+			return nil, err
 		}
 	}
 

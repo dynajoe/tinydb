@@ -109,6 +109,12 @@ func lexAlphaNumeric(l *Lexer) stateFn {
 			l.emit(TokenValues)
 		} else if strings.ToUpper(value) == "TRUE" || strings.ToUpper(value) == "FALSE" {
 			l.emit(TokenBoolean)
+		} else if strings.ToUpper(value) == "BEGIN" {
+			l.emit(TokenBegin)
+		} else if strings.ToUpper(value) == "COMMIT" {
+			l.emit(TokenCommit)
+		} else if strings.ToUpper(value) == "ROLLBACK" {
+			l.emit(TokenRollback)
 		} else if strings.ToUpper(value) == "NULL" {
 			l.emit(TokenNull)
 		} else {

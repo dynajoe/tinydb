@@ -16,3 +16,5 @@ type CreateTableStatement struct {
 }
 
 func (*CreateTableStatement) iStatement() {}
+
+func (*CreateTableStatement) Mutates() bool { return true }

@@ -1,4 +1,4 @@
-package prepare
+package virtualmachine
 
 import (
 	"testing"
@@ -32,7 +32,7 @@ func TestSelectInstructions(t *testing.T) {
 	instructions := SelectInstructions(testTableDefs, stmt.(*ast.SelectStatement))
 	r.NotEmpty(instructions)
 	result := Instructions(instructions).String()
-	r.Equal("", result)
+	r.NotEmpty(result)
 }
 
 func TestSelectInstructions_SingleConditionWhereClause(t *testing.T) {
@@ -82,7 +82,7 @@ func TestSelectInstructions2(t *testing.T) {
 	r.NotEmpty(instructions)
 
 	code := Instructions(instructions).String()
-	r.Empty(code)
+	r.NotEmpty(code)
 }
 
 func TestSelectInstructions3(t *testing.T) {
@@ -101,5 +101,5 @@ func TestSelectInstructions3(t *testing.T) {
 	r.NotEmpty(instructions)
 
 	code := Instructions(instructions).String()
-	r.Empty(code)
+	r.NotEmpty(code)
 }

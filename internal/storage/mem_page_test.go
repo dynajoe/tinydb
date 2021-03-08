@@ -8,9 +8,9 @@ import (
 
 func blankMemPage(pageType PageType) *MemPage {
 	p := &MemPage{
-		PageHeader: NewPageHeader(pageType, 4096),
-		PageNumber: 2,
-		Data:       make([]byte, 4096),
+		header:     NewPageHeader(pageType, 4096),
+		pageNumber: 2,
+		data:       make([]byte, 4096),
 	}
 	return p
 }
@@ -26,15 +26,15 @@ func TestMemPage_AddCell_InteriorNode(t *testing.T) {
 	cellBytes, err := cell.ToBytes()
 	assert.NoError(err)
 	page.AddCell(cellBytes)
-	assert.Equal([]byte{0x5, 0x0, 0x0, 0x0, 0x1}, page.Data[:5])
-	assert.Equal([]byte{0xf, 0xfa, 0x0}, page.Data[5:8])
+	assert.Equal([]byte{0x5, 0x0, 0x0, 0x0, 0x1}, page.data[:5])
+	assert.Equal([]byte{0xf, 0xfa, 0x0}, page.data[5:8])
 
-	startOffset := page.CellsOffset - uint16(len(cellBytes))
-	startCellCount := page.NumCells + 1
+	startOffset := page.header.CellsOffset - uint16(len(cellBytes))
+	startCellCount := page.header.NumCells + 1
 	for i := 0; i < 10; i++ {
 		page.AddCell(cellBytes)
-		assert.Equal(startCellCount+uint16(i), page.NumCells)
-		assert.Equal(startOffset-uint16(len(cellBytes)*i), page.CellsOffset)
-		assert.Equal(cellBytes, page.Data[page.CellsOffset:int(page.CellsOffset)+len(cellBytes)])
+		assert.Equal(startCellCount+uint16(i), page.header.NumCells)
+		assert.Equal(startOffset-uint16(len(cellBytes)*i), page.header.CellsOffset)
+		assert.Equal(cellBytes, page.data[page.header.CellsOffset:int(page.header.CellsOffset)+len(cellBytes)])
 	}
 }

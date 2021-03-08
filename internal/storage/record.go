@@ -136,16 +136,6 @@ func (r Record) Write(bs io.ByteWriter) error {
 	return nil
 }
 
-// WriteInteriorEntry writes B-Tree Interior Cell (header 0x05):
-// A 4-byte big-endian page number which is the left child pointer.
-// A varint which is the integer key
-func WriteInteriorEntry(p *MemPage, key int, leftChild uint32) {
-	binary.BigEndian.PutUint32(p.Data[0:4], leftChild)
-	buf := bytes.Buffer{}
-	WriteVarint(&buf, uint64(key))
-	copy(p.Data[4:], buf.Bytes())
-}
-
 // Header (12 bytes):
 // 	pageType: 05
 //     00 00
