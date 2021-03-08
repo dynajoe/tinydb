@@ -1,9 +1,11 @@
-package storage
+package pager
 
 import (
 	"bytes"
 	"encoding/binary"
 	"io"
+
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 // NewPageHeader creates a new PageHeader
@@ -128,20 +130,20 @@ func (p *MemPage) CellCount() int {
 }
 
 // ReadRecord returns a slice of bytes of the requested cell.
-func (p *MemPage) ReadRecord(cellIndex int) (*Record, error) {
+func (p *MemPage) ReadRecord(cellIndex int) (*storage.Record, error) {
 	cellDataStart := p.cellDataOffset(cellIndex)
 
 	// TODO: Should this be capped upper and lower bound?
 	reader := bytes.NewReader(p.data[cellDataStart:])
-	return ReadRecord(reader)
+	return storage.ReadRecord(reader)
 }
 
 // ReadInteriorNode returns a slice of bytes of the requested cell.
-func (p *MemPage) ReadInteriorNode(cellIndex int) (*InteriorNode, error) {
+func (p *MemPage) ReadInteriorNode(cellIndex int) (*storage.InteriorNode, error) {
 	cellDataStart := p.cellDataOffset(cellIndex)
 
 	// TODO: Should this be capped upper and lower bound?
-	return ReadInteriorNode(p.data[cellDataStart:])
+	return storage.ReadInteriorNode(p.data[cellDataStart:])
 }
 
 // AddCell adds a cell entry to the page. This function assumes
@@ -233,4 +235,16 @@ func FromBytes(pageNumber int, data []byte) (*MemPage, error) {
 		data:       data,
 		dirty:      false,
 	}, nil
+}
+
+func WriteRecord(p *MemPage, r *storage.Record) error {
+	buf := bytes.Buffer{}
+	if err := r.Write(&buf); err != nil {
+		return err
+	}
+
+	recordBytes := buf.Bytes()
+	p.AddCell(recordBytes)
+
+	return nil
 }

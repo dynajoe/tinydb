@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/joeandaverde/tinydb/internal/metadata"
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
@@ -280,7 +281,7 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []*Instruction {
 // |    9 | Transaction |  0 |  1 |  7 | 0         | 01 |         |
 // |   10 | Goto        |  0 |  1 |  0 |           | 00 |         |
 // +------+-------------+----+----+----+-----------+----+---------+
-func InsertInstructions(pager storage.Pager, stmt *ast.InsertStatement) []*Instruction {
+func InsertInstructions(pager pager.Pager, stmt *ast.InsertStatement) []*Instruction {
 	table, err := metadata.GetTableDefinition(pager, stmt.Table)
 	if err != nil {
 		return nil

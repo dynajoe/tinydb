@@ -1,9 +1,11 @@
-package storage
+package pager
 
 import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 type Mode int
@@ -44,15 +46,6 @@ type ReservablePager interface {
 	Reserve(Mode) *ReservedPager
 }
 
-type PageReader interface {
-	PageSize() int
-	TotalPages() int
-	Read(page int) ([]byte, error)
-}
-
-type PageWriter interface {
-	Write(page int, data []byte) error
-}
 type pager struct {
 	mu     *sync.RWMutex
 	notify sync.Cond
@@ -63,11 +56,11 @@ type pager struct {
 	pageCache     map[int]*MemPage
 	modifiedPages map[int]*MemPage
 
-	src PageReader
-	dst PageWriter
+	src storage.PageReader
+	dst storage.PageWriter
 }
 
-func NewReservablePager(src PageReader, dst PageWriter) ReservablePager {
+func NewReservablePager(src storage.PageReader, dst storage.PageWriter) ReservablePager {
 	return &pager{
 		mu:            &sync.RWMutex{},
 		state:         StateRead,

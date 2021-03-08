@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/internal/virtualmachine"
 )
@@ -22,7 +23,7 @@ type Engine struct {
 	log          *log.Logger
 	config       *Config
 	connectCount int
-	pager        storage.ReservablePager
+	pager        pager.ReservablePager
 	wal          *storage.WAL
 	adminLock    *sync.Mutex
 }
@@ -45,18 +46,18 @@ func Start(config *Config) (*Engine, error) {
 	}
 
 	// Pager abstraction over the database file
-	reservablePager := storage.NewReservablePager(dbFile, dbFile)
+	reservablePager := pager.NewReservablePager(dbFile, dbFile)
 
 	// Brand new database needs at least one page.
 	if dbFile.TotalPages() == 0 {
-		reserved := reservablePager.Reserve(storage.ModeWrite)
+		reserved := reservablePager.Reserve(pager.ModeWrite)
 		defer reserved.Release()
-		pager := reserved.Pager()
+		p := reserved.Pager()
 
 		// Initialize the first page
-		if _, err := pager.Allocate(storage.PageTypeLeaf); err != nil {
+		if _, err := p.Allocate(pager.PageTypeLeaf); err != nil {
 			return nil, err
-		} else if err := pager.Flush(); err != nil {
+		} else if err := p.Flush(); err != nil {
 			return nil, err
 		}
 	}

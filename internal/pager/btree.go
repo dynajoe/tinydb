@@ -1,8 +1,10 @@
-package storage
+package pager
 
 import (
 	"bytes"
 	"errors"
+
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 type BTreeTable struct {
@@ -17,7 +19,7 @@ func NewBTreeTable(rootPage int, p Pager) *BTreeTable {
 	}
 }
 
-func (b *BTreeTable) Insert(r *Record) error {
+func (b *BTreeTable) Insert(r *storage.Record) error {
 	buf := bytes.Buffer{}
 	if err := r.Write(&buf); err != nil {
 		return err
@@ -63,12 +65,12 @@ func (b *BTreeTable) Insert(r *Record) error {
 				return err
 			}
 
-			internalNode := InteriorNode{
+			internalNode := storage.InteriorNode{
 				LeftChild: uint32(destPage.Number()),
 				Key:       maxRowID,
 			}
 
-			if !root.Fits(InteriorNodeSize) {
+			if !root.Fits(storage.InteriorNodeSize) {
 				return errors.New("not yet supporting adding another internal node")
 			}
 
@@ -127,7 +129,7 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 	p.SetHeader(newHeader)
 
 	// Add a cell to the new internal page
-	cell := InteriorNode{
+	cell := storage.InteriorNode{
 		LeftChild: uint32(leftPage.Number()),
 		Key:       maxRowID,
 	}
@@ -160,7 +162,7 @@ func maxRowID(p *MemPage) (uint32, error) {
 
 type recorditerator struct {
 	n      int
-	record *Record
+	record *storage.Record
 	p      *MemPage
 	err    error
 }
@@ -183,6 +185,6 @@ func (i *recorditerator) Error() error {
 	return i.err
 }
 
-func (i *recorditerator) Current() *Record {
+func (i *recorditerator) Current() *storage.Record {
 	return i.record
 }

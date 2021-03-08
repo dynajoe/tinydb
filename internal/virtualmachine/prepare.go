@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/joeandaverde/tinydb/internal/metadata"
-	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 )
 
@@ -15,7 +15,7 @@ type PreparedStatement struct {
 }
 
 // Prepare compiles a statement into a set of instructions to run in the database virtual machine.
-func Prepare(stmt ast.Statement, pager storage.Pager) (*PreparedStatement, error) {
+func Prepare(stmt ast.Statement, pager pager.Pager) (*PreparedStatement, error) {
 	preparedStatement := &PreparedStatement{
 		Statement: stmt,
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
@@ -147,18 +148,18 @@ type Flags struct {
 type Program struct {
 	flags        *Flags
 	pc           int
-	pager        storage.Pager
+	pager        pager.Pager
 	instructions []*Instruction
 	ps           *PreparedStatement
 	regs         []*register
-	cursors      []*storage.Cursor
+	cursors      []*pager.Cursor
 	strings      []string
 	halted       bool
 	results      chan []interface{}
 	err          string
 }
 
-func NewProgram(flags *Flags, pager storage.Pager, ps *PreparedStatement) *Program {
+func NewProgram(flags *Flags, p pager.Pager, ps *PreparedStatement) *Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -171,11 +172,11 @@ func NewProgram(flags *Flags, pager storage.Pager, ps *PreparedStatement) *Progr
 	return &Program{
 		flags:        flags,
 		ps:           ps,
-		cursors:      make([]*storage.Cursor, 5),
+		cursors:      make([]*pager.Cursor, 5),
 		instructions: ps.Instructions,
 		pc:           0,
 		regs:         regs,
-		pager:        pager,
+		pager:        p,
 		results:      make(chan []interface{}),
 	}
 }
@@ -276,7 +277,7 @@ func (p *Program) step() int {
 		cursor := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo, i.P4.(string))
+		f, err := pager.NewCursor(p.pager, pager.CURSOR_READ, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open read error")
 		}
@@ -285,7 +286,7 @@ func (p *Program) step() int {
 		cursorIndex := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo, i.P4.(string))
+		f, err := pager.NewCursor(p.pager, pager.CURSOR_WRITE, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open write error")
 		}
@@ -364,7 +365,7 @@ func (p *Program) step() int {
 		p.results <- result
 	case OpCreateTable:
 		// Allocate a page for the new table
-		rootPage, err := p.pager.Allocate(storage.PageTypeLeaf)
+		rootPage, err := p.pager.Allocate(pager.PageTypeLeaf)
 		if err != nil {
 			return p.error("unable to allocate page for table")
 		}

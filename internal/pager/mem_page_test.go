@@ -1,8 +1,9 @@
-package storage
+package pager
 
 import (
 	"testing"
 
+	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ func TestMemPage_AddCell_InteriorNode(t *testing.T) {
 	assert := require.New(t)
 	page := blankMemPage(PageTypeInternal)
 
-	cell := InteriorNode{
+	cell := storage.InteriorNode{
 		LeftChild: uint32(2),
 		Key:       999, // varint 0x87 0x67
 	}

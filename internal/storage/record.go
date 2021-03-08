@@ -147,18 +147,6 @@ func (r Record) Write(bs io.ByteWriter) error {
 // interior page key: 00
 // last bytes 03 07
 
-func WriteRecord(p *MemPage, r *Record) error {
-	buf := bytes.Buffer{}
-	if err := r.Write(&buf); err != nil {
-		return err
-	}
-
-	recordBytes := buf.Bytes()
-	p.AddCell(recordBytes)
-
-	return nil
-}
-
 func NewMasterTableRecord(rowID uint32, typeName string, name string, tableName string, rootPage int, sqlText string) *Record {
 	return NewRecord(rowID, []*Field{
 		{

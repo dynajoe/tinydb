@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql"
 	"github.com/joeandaverde/tinydb/tsql/ast"
@@ -27,12 +28,12 @@ type TableDefinition struct {
 
 var tableCache = make(map[string]*TableDefinition)
 
-func GetTableDefinition(pager storage.Pager, name string) (*TableDefinition, error) {
+func GetTableDefinition(p pager.Pager, name string) (*TableDefinition, error) {
 	if tableDefinition, ok := tableCache[name]; ok {
 		return tableDefinition, nil
 	}
 
-	cursor, err := storage.NewCursor(pager, storage.CURSOR_READ, 1, name)
+	cursor, err := pager.NewCursor(p, pager.CURSOR_READ, 1, name)
 	if err != nil {
 		return nil, err
 	}

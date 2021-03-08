@@ -65,11 +65,11 @@ func OpenWAL(path string, pageSize int) (*WAL, error) {
 	}, nil
 }
 
-func (w *WAL) Write(p *MemPage, isCommit bool) error {
+func (w *WAL) Write(pageNumber int, data []byte, isCommit bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	frame, err := w.makeWalFrame(p, isCommit)
+	frame, err := w.makeWalFrame(pageNumber, data, isCommit)
 	if err != nil {
 		return err
 	}
@@ -140,10 +140,10 @@ func (w *WAL) writeHeader() error {
 	return nil
 }
 
-func (w *WAL) makeWalFrame(p *MemPage, isCommit bool) ([]byte, error) {
+func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, error) {
 	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.pageSize)
 
-	binary.BigEndian.PutUint32(header[0:4], uint32(p.Number()))
+	binary.BigEndian.PutUint32(header[0:4], uint32(pageNumber))
 
 	if isCommit {
 		binary.BigEndian.PutUint32(header[4:8], 1)
@@ -163,7 +163,7 @@ func (w *WAL) makeWalFrame(p *MemPage, isCommit bool) ([]byte, error) {
 	pageBuffer := bytes.NewBuffer(header)
 	if _, err := pageBuffer.Write(header); err != nil {
 		return nil, err
-	} else if _, err := p.WriteTo(pageBuffer); err != nil {
+	} else if _, err := pageBuffer.Write(data); err != nil {
 		return nil, err
 	}
 
