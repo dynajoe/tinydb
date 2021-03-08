@@ -11,20 +11,15 @@ import (
 type Mode int
 
 const (
-	ModeRead Mode = iota
+	ModeNone Mode = iota
+	ModeRead
 	ModeWrite
-)
-
-type State int
-
-const (
-	StateRead State = iota
-	StateWrite
 )
 
 // Pager manages database paging
 type Pager interface {
-	State() State
+	Mode() Mode
+	SetMode(Mode)
 	PageSize() int
 	Read(page int) (*MemPage, error)
 	Write(pages ...*MemPage) error
@@ -33,98 +28,29 @@ type Pager interface {
 	Reset()
 }
 
-type ReservedPager struct {
-	releaseOnce *sync.Once
-	upgradeOnce *sync.Once
-	pager       Pager
-
-	Release func()
-	Upgrade func()
-}
-
-type ReservablePager interface {
-	Reserve(Mode) *ReservedPager
-}
-
 type pager struct {
 	mu     *sync.RWMutex
 	notify sync.Cond
-	state  State
+	mode   Mode
 
-	pageCount     int
-	pageSize      int
-	pageCache     map[int]*MemPage
-	modifiedPages map[int]*MemPage
+	pageCount int
+	pageSize  int
+	pageCache map[int]*MemPage
 
 	src storage.PageReader
 	dst storage.PageWriter
 }
 
-func NewReservablePager(src storage.PageReader, dst storage.PageWriter) ReservablePager {
+func NewPager(src storage.PageReader, dst storage.PageWriter) Pager {
 	return &pager{
-		mu:            &sync.RWMutex{},
-		state:         StateRead,
-		pageCount:     src.TotalPages(),
-		pageSize:      src.PageSize(),
-		pageCache:     make(map[int]*MemPage),
-		modifiedPages: make(map[int]*MemPage),
-		src:           src,
-		dst:           dst,
+		mu:        &sync.RWMutex{},
+		mode:      ModeRead,
+		pageCount: src.TotalPages(),
+		pageSize:  src.PageSize(),
+		pageCache: make(map[int]*MemPage),
+		src:       src,
+		dst:       dst,
 	}
-}
-
-func (r *ReservedPager) Pager() Pager {
-	return r.pager
-}
-
-// Reserve returns a pager reservation in the specified mode
-func (p *pager) Reserve(mode Mode) *ReservedPager {
-	reserved := &ReservedPager{
-		releaseOnce: &sync.Once{},
-		upgradeOnce: &sync.Once{},
-		pager:       p,
-	}
-
-	switch mode {
-	case ModeRead:
-		p.mu.RLock()
-		p.state = StateRead
-		upgraded := false
-
-		reserved.Release = func() {
-			reserved.releaseOnce.Do(func() {
-				if upgraded {
-					p.mu.Unlock()
-				} else {
-					p.mu.RUnlock()
-				}
-			})
-		}
-
-		reserved.Upgrade = func() {
-			reserved.upgradeOnce.Do(func() {
-				upgraded = true
-				// TODO: Go does not support upgradable locks.
-				p.mu.RUnlock()
-				// TODO: Possible race condition here where the db could have been written to.
-				p.mu.Lock()
-				p.state = StateWrite
-			})
-		}
-
-	case ModeWrite:
-		p.mu.Lock()
-		p.state = StateWrite
-
-		reserved.Release = func() {
-			p.state = StateRead
-			p.mu.Unlock()
-		}
-
-		reserved.Upgrade = func() {}
-	}
-
-	return reserved
 }
 
 // PageSize returns the page size of the pager
@@ -132,9 +58,14 @@ func (p *pager) PageSize() int {
 	return p.pageSize
 }
 
-// State returns the current state of the pager
-func (p *pager) State() State {
-	return p.state
+// SetMode sets the mode of the pager to assist with protecting against unexpected modification
+func (p *pager) SetMode(mode Mode) {
+	p.mode = mode
+}
+
+// Mode returns the current state of the pager
+func (p *pager) Mode() Mode {
+	return p.mode
 }
 
 // Read reads a full page from cache or the page source
@@ -170,9 +101,9 @@ func (p *pager) Read(pageNumber int) (*MemPage, error) {
 	return p.pageCache[pageNumber], nil
 }
 
-// Write caches pages in a dirty state
+// Write updates pages in the pager
 func (p *pager) Write(pages ...*MemPage) error {
-	if p.state != StateWrite {
+	if p.mode != ModeWrite {
 		return errors.New("cannot modify pager in read state")
 	}
 
@@ -185,7 +116,7 @@ func (p *pager) Write(pages ...*MemPage) error {
 
 // Flush flushes all dirty pages to destination
 func (p *pager) Flush() error {
-	if p.state != StateWrite {
+	if p.mode != ModeWrite {
 		return errors.New("cannot modify pager in read state")
 	}
 
@@ -201,11 +132,14 @@ func (p *pager) Flush() error {
 		page.dirty = false
 	}
 
+	p.pageCount = p.src.TotalPages()
+
 	return nil
 }
 
 // Reset clears all dirty pages
 func (p *pager) Reset() {
+	p.pageCount = p.src.TotalPages()
 	for k, page := range p.pageCache {
 		if page.dirty {
 			delete(p.pageCache, k)
@@ -229,7 +163,7 @@ func (p *pager) Reset() {
 //    sql text
 // );
 func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
-	if p.state != StateWrite {
+	if p.mode != ModeWrite {
 		return nil, errors.New("cannot modify pager in read state")
 	}
 

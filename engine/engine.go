@@ -23,9 +23,10 @@ type Engine struct {
 	log          *log.Logger
 	config       *Config
 	connectCount int
-	pager        pager.ReservablePager
 	wal          *storage.WAL
 	adminLock    *sync.Mutex
+
+	pagerPool *PagerPool
 }
 
 // Start initializes a new TinyDb database engine
@@ -46,14 +47,12 @@ func Start(config *Config) (*Engine, error) {
 	}
 
 	// Pager abstraction over the database file
-	reservablePager := pager.NewReservablePager(dbFile, dbFile)
+	p := pager.NewPager(dbFile, dbFile)
+	p.SetMode(pager.ModeWrite)
+	defer p.SetMode(pager.ModeRead)
 
 	// Brand new database needs at least one page.
 	if dbFile.TotalPages() == 0 {
-		reserved := reservablePager.Reserve(pager.ModeWrite)
-		defer reserved.Release()
-		p := reserved.Pager()
-
 		// Initialize the first page
 		if _, err := p.Allocate(pager.PageTypeLeaf); err != nil {
 			return nil, err
@@ -73,7 +72,10 @@ func Start(config *Config) (*Engine, error) {
 		log:       logger,
 		wal:       wal,
 		adminLock: &sync.Mutex{},
-		pager:     reservablePager,
+		pagerPool: &PagerPool{
+			pager: p,
+			cond:  sync.NewCond(&sync.Mutex{}),
+		},
 	}, nil
 }
 
@@ -88,5 +90,52 @@ func (e *Engine) Connect() *Connection {
 		mu:     &sync.Mutex{},
 		flags:  &virtualmachine.Flags{AutoCommit: true},
 		engine: e,
+	}
+}
+
+func (e *Engine) GetPager(connection *Connection, mode pager.Mode) (pager.Pager, error) {
+	return e.pagerPool.Acquire(connection.id, mode)
+}
+
+func (e *Engine) ReturnPager(connection *Connection) {
+	e.pagerPool.Release(connection.id)
+}
+
+type PagerPool struct {
+	cond    *sync.Cond
+	ownerID int
+	pager   pager.Pager
+}
+
+func (p *PagerPool) Acquire(id int, mode pager.Mode) (pager.Pager, error) {
+	p.cond.L.Lock()
+
+	// Already own the pager
+	if p.ownerID == id {
+		if mode == pager.ModeWrite {
+			p.pager.SetMode(mode)
+		}
+		p.cond.L.Unlock()
+		return p.pager, nil
+	}
+
+	for p.ownerID != 0 {
+		// Wait for owner to be 0
+		p.cond.Wait()
+	}
+
+	p.ownerID = id
+	p.cond.L.Unlock()
+	p.pager.SetMode(mode)
+	return p.pager, nil
+}
+
+func (p *PagerPool) Release(id int) {
+	p.cond.L.Lock()
+	if p.ownerID == id {
+		p.ownerID = 0
+		p.pager.SetMode(pager.ModeRead)
+		p.cond.L.Unlock()
+		p.cond.Signal()
 	}
 }

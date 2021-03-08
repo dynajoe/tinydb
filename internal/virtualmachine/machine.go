@@ -145,6 +145,11 @@ type Flags struct {
 	Rollback   bool
 }
 
+type Output struct {
+	Error error
+	Data  []interface{}
+}
+
 type Program struct {
 	flags        *Flags
 	pc           int
@@ -155,7 +160,7 @@ type Program struct {
 	cursors      []*pager.Cursor
 	strings      []string
 	halted       bool
-	results      chan []interface{}
+	results      chan Output
 	err          string
 }
 
@@ -177,32 +182,32 @@ func NewProgram(flags *Flags, p pager.Pager, ps *PreparedStatement) *Program {
 		pc:           0,
 		regs:         regs,
 		pager:        p,
-		results:      make(chan []interface{}),
+		results:      make(chan Output),
 	}
 }
 
-func (p *Program) Run() error {
-	defer close(p.results)
-
-	for p.pc < len(p.instructions) {
-		nextPc := p.step()
-		if nextPc == -1 {
-			return errors.New(p.err)
+func (p *Program) Run() {
+	go func() {
+		defer close(p.results)
+		for p.pc < len(p.instructions) {
+			nextPc := p.step()
+			if nextPc == -1 {
+				p.results <- Output{Error: errors.New(p.err)}
+				return
+			}
+			if p.halted {
+				return
+			}
+			if nextPc > 0 {
+				p.pc = nextPc
+				continue
+			}
+			p.pc = p.pc + 1
 		}
-		if p.halted {
-			return nil
-		}
-		if nextPc > 0 {
-			p.pc = nextPc
-			continue
-		}
-		p.pc = p.pc + 1
-	}
-
-	return nil
+	}()
 }
 
-func (p *Program) Results() <-chan []interface{} {
+func (p *Program) Results() <-chan Output {
 	return p.results
 }
 
@@ -362,15 +367,15 @@ func (p *Program) step() int {
 				result = append(result, nil)
 			}
 		}
-		p.results <- result
+		p.results <- Output{Data: result}
 	case OpCreateTable:
 		// Allocate a page for the new table
 		rootPage, err := p.pager.Allocate(pager.PageTypeLeaf)
 		if err != nil {
-			return p.error("unable to allocate page for table")
+			return p.error(fmt.Sprintf("unable to allocate page for table: %s", err.Error()))
 		}
 		if err := p.pager.Write(rootPage); err != nil {
-			return p.error("unable to persist new table page")
+			return p.error(fmt.Sprintf("unable to persist new table page: %s", err.Error()))
 		}
 		p.writeInt(i.P1, rootPage.Number())
 	case OpMakeRecord:

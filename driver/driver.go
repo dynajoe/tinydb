@@ -82,10 +82,18 @@ func (c *TinyDBConnection) Close() error {
 }
 
 func (c *TinyDBConnection) exec(command string) (driver.Result, error) {
-	_, err := c.conn.Exec(command)
+	rs, err := c.conn.Exec(command)
 	if err != nil {
 		return nil, err
 	}
+
+	// Wait for exec to finish, discard any rows returned
+	for r := range rs.Results {
+		if r.Error != nil {
+			return nil, r.Error
+		}
+	}
+
 	return &TinyDBResult{}, nil
 }
 
@@ -185,19 +193,17 @@ func (r *TinyDBRows) Close() error {
 // should be taken when closing Rows not to modify
 // a buffer held in dest.
 func (r *TinyDBRows) Next(dest []driver.Value) error {
-	select {
-	case row := <-r.rs.Rows:
-		if row == nil {
-			return io.EOF
-		}
-
-		for i, v := range row.Data {
-			dest[i] = v
-		}
-		return nil
-	case err := <-r.rs.Error:
-		return err
+	row := <-r.rs.Results
+	if row == nil {
+		return io.EOF
+	} else if row.Error != nil {
+		return row.Error
 	}
+
+	for i, v := range row.Data {
+		dest[i] = v
+	}
+	return nil
 }
 
 func parseDsn(dsn string) (*engine.Config, error) {

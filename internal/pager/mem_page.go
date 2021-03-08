@@ -149,6 +149,8 @@ func (p *MemPage) ReadInteriorNode(cellIndex int) (*storage.InteriorNode, error)
 // AddCell adds a cell entry to the page. This function assumes
 // that the page can fit the new cell.
 func (p *MemPage) AddCell(data []byte) {
+	p.dirty = true
+
 	// Every cell is 2 bytes
 	cellPointerOffset := cellPointersStart(p.header.Type, p.pageNumber) + int(2*p.header.NumCells)
 
