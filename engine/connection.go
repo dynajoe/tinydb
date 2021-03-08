@@ -3,7 +3,7 @@ package engine
 import (
 	"sync"
 
-	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/virtualmachine"
 	"github.com/joeandaverde/tinydb/tsql"
 )
@@ -16,7 +16,7 @@ type Connection struct {
 	autoCommit    bool
 	flags         *virtualmachine.Flags
 	engine        *Engine
-	reservedPager *storage.ReservedPager
+	reservedPager *pager.ReservedPager
 }
 
 // ColumnList represents a list of columns of a result set
@@ -45,7 +45,7 @@ func (c *Connection) Exec(text string) (*ResultSet, error) {
 
 	// If there's no pager reserved, get one.
 	if c.reservedPager == nil {
-		c.reservedPager = c.engine.pager.Reserve(storage.ModeRead)
+		c.reservedPager = c.engine.pager.Reserve(pager.ModeRead)
 	}
 	pager := c.reservedPager.Pager()
 

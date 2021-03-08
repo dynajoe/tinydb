@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/joeandaverde/tinydb/internal/metadata"
-	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/tsql/ast"
 	"github.com/joeandaverde/tinydb/tsql/lexer"
 )
@@ -54,17 +54,17 @@ type ExecutionEnvironment struct {
 	ColumnLookup map[string]columnLookup
 	Tables       map[string]*metadata.TableDefinition
 	Columns      []string
-	Pager        storage.Pager
+	Pager        pager.Pager
 }
 
-func newExecutionEnvironment(pager storage.Pager, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
+func newExecutionEnvironment(p pager.Pager, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
 	colLookup := make(map[string]columnLookup)
 	tableMetadata := make(map[string]*metadata.TableDefinition)
 	allMetadata := make([]*metadata.TableDefinition, len(tables))
 	i := 0
 	for _, tableAlias := range tables {
 		tableName := tableAlias.Name
-		metadata, err := metadata.GetTableDefinition(pager, tableName)
+		metadata, err := metadata.GetTableDefinition(p, tableName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to locate table %s", tableName)
 		}
@@ -88,7 +88,7 @@ func newExecutionEnvironment(pager storage.Pager, tables []ast.TableAlias) (*Exe
 	return &ExecutionEnvironment{
 		Tables:       tableMetadata,
 		ColumnLookup: colLookup,
-		Pager:        pager,
+		Pager:        p,
 	}, nil
 }
 

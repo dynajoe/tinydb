@@ -1,7 +1,9 @@
-package storage
+package pager
 
 import (
 	"errors"
+
+	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
 type CursorType byte
@@ -43,7 +45,7 @@ func NewCursor(pager Pager, typ CursorType, rootPage int, name string) (*Cursor,
 }
 
 // CurrentCell reads the current record
-func (c *Cursor) CurrentCell() (*Record, error) {
+func (c *Cursor) CurrentCell() (*storage.Record, error) {
 	p, err := c.pager.Read(c.currentPage)
 	if err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (c *Cursor) CurrentCell() (*Record, error) {
 }
 
 // Insert places a record in the btree
-func (c *Cursor) Insert(record *Record) error {
+func (c *Cursor) Insert(record *storage.Record) error {
 	btreeTable := NewBTreeTable(c.rootPage, c.pager)
 	return btreeTable.Insert(record)
 }
