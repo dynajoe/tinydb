@@ -223,15 +223,14 @@ func collectRows(rs *ResultSet) ([]*Row, error) {
 	var rows []*Row
 outer:
 	for {
-		select {
-		case err := <-rs.Error:
-			return nil, err
-		case r := <-rs.Rows:
-			if r == nil {
-				break outer
-			}
-			rows = append(rows, r)
+		r := <-rs.Results
+		if r == nil {
+			break outer
 		}
+		if r.Error != nil {
+			return nil, r.Error
+		}
+		rows = append(rows, r)
 	}
 
 	return rows, nil

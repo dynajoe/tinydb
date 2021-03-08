@@ -82,6 +82,16 @@ func TestDriver_Transaction(t *testing.T) {
 	assert.Equal("bar", name)
 
 	assert.NoError(tx.Commit())
+
+	rows, err = db.Query("SELECT name FROM foo WHERE name = 'bar';")
+	assert.NoError(err)
+	assert.NotNil(rows)
+	var committedName string
+	for rows.Next() {
+		err = rows.Scan(&committedName)
+		assert.NoError(err)
+	}
+	assert.Equal("bar", committedName)
 }
 
 func TestDriver_Transaction_Rollback(t *testing.T) {
@@ -113,7 +123,6 @@ func TestDriver_Transaction_Rollback(t *testing.T) {
 		err = rows.Scan(&name)
 		assert.NoError(err)
 	}
-
 	assert.Equal("bar", name)
 
 	assert.NoError(tx.Rollback())
