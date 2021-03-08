@@ -83,3 +83,42 @@ func TestDriver_Transaction(t *testing.T) {
 
 	assert.NoError(tx.Commit())
 }
+
+func TestDriver_Transaction_Rollback(t *testing.T) {
+	assert := require.New(t)
+	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
+	assert.NoError(err)
+
+	db, err := sql.Open("tinydb", tempDir)
+	assert.NoError(err)
+	assert.NotNil(db)
+
+	res, err := db.Exec("CREATE TABLE foo (name text);")
+	assert.NoError(err)
+	assert.NotNil(res)
+
+	tx, err := db.Begin()
+	assert.NoError(err)
+
+	res, err = tx.Exec("INSERT INTO foo (name) VALUES ('bar');")
+	assert.NoError(err)
+	assert.NotNil(res)
+
+	rows, err := tx.Query("SELECT name FROM foo WHERE name = 'bar';")
+	assert.NoError(err)
+	assert.NotNil(rows)
+
+	var name string
+	for rows.Next() {
+		err = rows.Scan(&name)
+		assert.NoError(err)
+	}
+
+	assert.Equal("bar", name)
+
+	assert.NoError(tx.Rollback())
+
+	rows, err = db.Query("SELECT name FROM foo WHERE name = 'bar';")
+	assert.NoError(err)
+	assert.False(rows.Next())
+}
