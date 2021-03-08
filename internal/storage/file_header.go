@@ -22,7 +22,7 @@ func NewFileHeader(pageSize uint16) FileHeader {
 	return FileHeader{
 		PageSize:          pageSize,
 		FileChangeCounter: 0,
-		SchemaVersion:     0,
+		SchemaVersion:     1,
 		SizeInPages:       1,
 	}
 }

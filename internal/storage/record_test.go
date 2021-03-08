@@ -2,7 +2,6 @@ package storage
 
 import (
 	"bytes"
-	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,38 +52,6 @@ func TestRecord_Write(t *testing.T) {
 	}
 
 	assert.Equal(expectedPrefix, buf.Bytes()[:len(expectedPrefix)])
-}
-
-func TestWriteRecord_WithText(t *testing.T) {
-	assert := require.New(t)
-
-	expectedText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et"
-	record := NewRecord(5, []*Field{
-		{
-			Type: Integer,
-			Data: 1337,
-		},
-		{
-			Type: Text,
-			Data: expectedText,
-		},
-	})
-
-	data, err := record.ToBytes()
-	assert.NoError(err)
-
-	expectedCellBytes := []byte{
-		0x6e,     // Varint cell length,
-		0x5,      // Varint _rowid_
-		0x4,      // RecordHeader[record size]
-		0x4,      // RecordHeader[int type]
-		0x0, 0x0, // RecordHeader[text type] -- value written below
-		0x0, 0x0, 0x05, 0x39, // RecordData[1337]
-	}
-	binary.PutUvarint(expectedCellBytes[4:6], uint64(len(expectedText)*2+13)) // RecordHeader[text type]
-	expectedCellBytes = append(expectedCellBytes, []byte(expectedText)...)    // RecordData[text]
-
-	assert.Equal(expectedCellBytes, data)
 }
 
 func TestNewMasterTableRecord(t *testing.T) {

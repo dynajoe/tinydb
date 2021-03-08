@@ -10,3 +10,5 @@ type InsertStatement struct {
 }
 
 func (*InsertStatement) iStatement() {}
+
+func (*InsertStatement) Mutates() bool { return true }

@@ -18,6 +18,10 @@ const (
 
 	TokenIdentifier
 
+	TokenBegin
+	TokenCommit
+	TokenRollback
+
 	TokenSelect
 	TokenFrom
 	TokenWhere
@@ -66,6 +70,12 @@ func (t Kind) String() string {
 		return "EOF"
 	case t == TokenError:
 		return "Error"
+	case t == TokenBegin:
+		return "BEGIN"
+	case t == TokenCommit:
+		return "COMMIT"
+	case t == TokenRollback:
+		return "ROLLBACK"
 	case t == TokenSelect:
 		return "SELECT"
 	case t == TokenFrom:

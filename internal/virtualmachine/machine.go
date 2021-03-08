@@ -52,6 +52,12 @@ const (
 	OpSeekGe
 	OpSeekLt
 	OpSeekLe
+
+	// Set the database auto-commit flag to P1 (1 or 0).
+	// If P2 is true, roll back any currently active btree transactions.
+	// This instruction causes the VM to halt.
+	OpAutoCommit
+
 	// P1 - cursor
 	// P2 - column index (0 based)
 	// P3 - register for column value
@@ -133,16 +139,17 @@ type Instruction struct {
 	Comment string
 }
 
-type Program interface {
-	Run() error
-	Results() <-chan []interface{}
+type Flags struct {
+	AutoCommit bool
+	Rollback   bool
 }
 
-type program struct {
+type Program struct {
+	flags        *Flags
 	pc           int
 	pager        storage.Pager
-	wal          *storage.WAL
 	instructions []*Instruction
+	ps           *PreparedStatement
 	regs         []*register
 	cursors      []*storage.Cursor
 	strings      []string
@@ -151,7 +158,7 @@ type program struct {
 	err          string
 }
 
-func NewProgram(pager storage.Pager, wal *storage.WAL, i []*Instruction) Program {
+func NewProgram(flags *Flags, pager storage.Pager, ps *PreparedStatement) *Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -161,18 +168,19 @@ func NewProgram(pager storage.Pager, wal *storage.WAL, i []*Instruction) Program
 		}
 	}
 
-	return &program{
+	return &Program{
+		flags:        flags,
+		ps:           ps,
 		cursors:      make([]*storage.Cursor, 5),
-		instructions: i,
+		instructions: ps.Instructions,
 		pc:           0,
 		regs:         regs,
 		pager:        pager,
-		wal:          wal,
 		results:      make(chan []interface{}),
 	}
 }
 
-func (p *program) Run() error {
+func (p *Program) Run() error {
 	defer close(p.results)
 
 	for p.pc < len(p.instructions) {
@@ -193,11 +201,11 @@ func (p *program) Run() error {
 	return nil
 }
 
-func (p *program) Results() <-chan []interface{} {
+func (p *Program) Results() <-chan []interface{} {
 	return p.results
 }
 
-func (p *program) step() int {
+func (p *Program) step() int {
 	i := p.instructions[p.pc]
 
 	switch i.Op {
@@ -268,7 +276,7 @@ func (p *program) step() int {
 		cursor := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, p.wal, storage.CURSOR_READ, pageNo, i.P4.(string))
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_READ, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open read error")
 		}
@@ -277,7 +285,7 @@ func (p *program) step() int {
 		cursorIndex := i.P1
 		pageNo := p.reg(i.P2).data.(int)
 		// cols := instruction.Params[2]
-		f, err := storage.NewCursor(p.pager, p.wal, storage.CURSOR_WRITE, pageNo, i.P4.(string))
+		f, err := storage.NewCursor(p.pager, storage.CURSOR_WRITE, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open write error")
 		}
@@ -305,6 +313,10 @@ func (p *program) step() int {
 		if hasMore {
 			return jmpAddr
 		}
+	case OpAutoCommit:
+		p.flags.AutoCommit = i.P1 == 1
+		p.flags.Rollback = i.P2 == 1
+		p.halted = true
 	case OpColumn:
 		cursor := p.cursors[i.P1]
 		col := i.P2
@@ -359,7 +371,7 @@ func (p *program) step() int {
 		if err := p.pager.Write(rootPage); err != nil {
 			return p.error("unable to persist new table page")
 		}
-		p.writeInt(i.P1, rootPage.PageNumber)
+		p.writeInt(i.P1, rootPage.Number())
 	case OpMakeRecord:
 		startReg := i.P1
 		colCount := i.P2
@@ -421,12 +433,12 @@ func (p *program) step() int {
 	return 0
 }
 
-func (p *program) error(message string) int {
+func (p *Program) error(message string) int {
 	p.err = message
 	return -1
 }
 
-func (p *program) reg(i int) *register {
+func (p *Program) reg(i int) *register {
 	if len(p.regs) <= i {
 		diff := len(p.regs) - i + 1
 		// Allocate some number of registers
@@ -440,7 +452,7 @@ func (p *program) reg(i int) *register {
 	return p.regs[i]
 }
 
-func (p *program) writeInt(r int, v int) {
+func (p *Program) writeInt(r int, v int) {
 	reg := p.reg(r)
 	reg.typ = RegInt32
 	reg.data = v

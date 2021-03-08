@@ -3,7 +3,6 @@ package engine
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -17,24 +16,25 @@ type VMTestSuite struct {
 	suite.Suite
 	tempDir string
 	engine  *Engine
+	conn    *Connection
 	sqlite  *sql.DB
 }
 
 func (s *VMTestSuite) SetupTest() {
-	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
-	s.tempDir = tempDir
-	s.NoError(err)
-	fmt.Println(s.tempDir)
+	s.tempDir = "/Users/joe/tiny-test/"
+	s.NoError(os.MkdirAll(s.tempDir, os.ModePerm))
 
-	s.engine, err = Start(&Config{
-		DataDir:           tempDir,
-		UseVirtualMachine: true,
-		PageSize:          4096,
+	engine, err := Start(&Config{
+		DataDir:  s.tempDir,
+		PageSize: 4096,
 	})
 	s.NoError(err)
 
-	db, err := sql.Open("sqlite3", s.tempDir+"/sqlite.db")
+	db, err := sql.Open("sqlite3", s.tempDir+"tiny-test-sqlite.db")
 	s.NoError(err)
+
+	s.engine = engine
+	s.conn = s.engine.Connect()
 	s.sqlite = db
 }
 
@@ -54,7 +54,7 @@ func (s *VMTestSuite) TestSimple_Btree() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where name = '999'")
+	results, err := s.conn.Exec("select * from foo where name = '999'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -73,7 +73,7 @@ func (s *VMTestSuite) TestSimple() {
 	s.AssertCommand("create table foo (name text)")
 	s.AssertCommand("insert into foo (name) values ('bar')")
 
-	results, err := s.engine.Command("select * from foo")
+	results, err := s.conn.Exec("select * from foo")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -88,7 +88,7 @@ func (s *VMTestSuite) TestSimple_WithFilter() {
 	s.AssertCommand("insert into foo (name) values ('bar')")
 	s.AssertCommand("insert into foo (name) values ('baz')")
 
-	results, err := s.engine.Command("select * from foo where name = 'bar'")
+	results, err := s.conn.Exec("select * from foo where name = 'bar'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -107,7 +107,7 @@ func (s *VMTestSuite) TestSimple_WithFilter2() {
 	s.AssertCommand("insert into foo (name) values ('bam')")
 	s.AssertCommand("insert into foo (name) values ('baz')")
 
-	results, err := s.engine.Command("select * from foo where name = 'baz' OR name = 'bam'")
+	results, err := s.conn.Exec("select * from foo where name = 'baz' OR name = 'bam'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -129,7 +129,7 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
+	results, err := s.conn.Exec("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -153,7 +153,7 @@ func (s *VMTestSuite) TestSimple_WithFilter4() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where name = '1' AND name != '2'")
+	results, err := s.conn.Exec("select * from foo where name = '1' AND name != '2'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -174,7 +174,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAnd() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where (name = '1' AND name != '2') OR name = '3'")
+	results, err := s.conn.Exec("select * from foo where (name = '1' AND name != '2') OR name = '3'")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -196,7 +196,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.engine.Command("select * from foo where name = '1' AND (name != '2' OR name = '3')")
+	results, err := s.conn.Exec("select * from foo where name = '1' AND (name != '2' OR name = '3')")
 	s.NoError(err)
 
 	rows, err := collectRows(results)
@@ -214,7 +214,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 func (s *VMTestSuite) AssertCommand(cmd string) {
 	//s.sqlite.Exec(cmd)
 
-	results, err := s.engine.Command(cmd)
+	results, err := s.conn.Exec(cmd)
 	s.NoError(err)
 	collectRows(results)
 }

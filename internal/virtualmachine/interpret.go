@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/joeandaverde/tinydb/internal/btree"
 	"github.com/joeandaverde/tinydb/internal/metadata"
 	"github.com/joeandaverde/tinydb/internal/storage"
 	"github.com/joeandaverde/tinydb/tsql/ast"
@@ -55,7 +54,6 @@ type ExecutionEnvironment struct {
 	ColumnLookup map[string]columnLookup
 	Tables       map[string]*metadata.TableDefinition
 	Columns      []string
-	Indexes      map[string]*btree.BTree
 	Pager        storage.Pager
 }
 

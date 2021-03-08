@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 )
 
@@ -28,15 +26,13 @@ type Cursor struct {
 	parentPage  int
 
 	pager Pager
-	wal   *WAL
 }
 
 // NewCursor initializes a cursor to traverse the database btree
-func NewCursor(pager Pager, wal *WAL, typ CursorType, rootPage int, name string) (*Cursor, error) {
+func NewCursor(pager Pager, typ CursorType, rootPage int, name string) (*Cursor, error) {
 	return &Cursor{
 		Name:        name,
 		pager:       pager,
-		wal:         wal,
 		rootPage:    rootPage,
 		currentPage: rootPage,
 		parentPage:  0,
@@ -48,59 +44,53 @@ func NewCursor(pager Pager, wal *WAL, typ CursorType, rootPage int, name string)
 
 // CurrentCell reads the current record
 func (c *Cursor) CurrentCell() (*Record, error) {
-	p, err := c.readCurrentPage()
+	p, err := c.pager.Read(c.currentPage)
 	if err != nil {
 		return nil, err
 	}
 
 	// Attempt to access non-leaf cell
-	if p.Type != PageTypeLeaf {
+	if p.header.Type != PageTypeLeaf {
 		return nil, errors.New("expected current position to be on leaf node")
 	}
 
-	// Read data at the current cell
-	ptr, err := readCellPointer(c.cellIndex, p)
-	if err != nil {
-		return nil, err
-	}
-
-	reader := bytes.NewReader(p.Data[ptr:])
-	return ReadRecord(reader)
+	return p.ReadRecord(c.cellIndex)
 }
 
 // Insert places a record in the btree
 func (c *Cursor) Insert(record *Record) error {
-	btreeTable := NewBTreeTable(c.rootPage, c.pager, c.wal)
+	btreeTable := NewBTreeTable(c.rootPage, c.pager)
 	return btreeTable.Insert(record)
 }
 
 // Next advances the cursor to the next record
 // returns true if there is a record false otherwise
 func (c *Cursor) Next() (bool, error) {
-	p, err := c.readCurrentPage()
+	p, err := c.pager.Read(c.currentPage)
 	if err != nil {
 		return false, err
 	}
 
+	nextIndex := c.cellIndex + 1
+
 	// Encountering an internal page should traverse its children
-	if p.Type == PageTypeInternal {
-		if c.cellIndex < int(p.NumCells) {
-			ptr, err := readCellPointer(c.cellIndex, p)
+	if p.header.Type == PageTypeInternal {
+		if nextIndex < int(p.header.NumCells) {
+			interiorNode, err := p.ReadInteriorNode(nextIndex)
 			if err != nil {
-				return false, nil
+				return false, err
 			}
-			interiorNode, _ := ReadInteriorNode(p.Data[ptr:])
+
 			nextPage := int(interiorNode.LeftChild)
 
 			// Store the position in the parent
 			// This may need to become a stack or linked list.
-			c.parentPage = p.PageNumber
-			parentIndex := c.cellIndex + 1
-			c.parentIndex = parentIndex
+			c.parentPage = p.Number()
+			c.parentIndex = nextIndex
 
 			// Start at the beginning of the child node
 			c.currentPage = nextPage
-			c.cellIndex = 0
+			c.cellIndex = -1
 		} else {
 			// TODO: Confirm intended behavior of right page
 
@@ -109,18 +99,16 @@ func (c *Cursor) Next() (bool, error) {
 			c.parentIndex = 0
 
 			// Last page is the right page.
-			c.currentPage = p.RightPage
-			c.cellIndex = 0
+			c.currentPage = p.header.RightPage
+			c.cellIndex = -1
 		}
 
 		return c.Next()
 	}
 
-	nextIndex := c.cellIndex + 1
-
 	// If leaf has been completely traversed.
 	// Go go to next leaf or done.
-	if nextIndex >= int(p.NumCells) {
+	if nextIndex >= int(p.header.NumCells) {
 		// No parent, we're done.
 		if c.parentPage == 0 {
 			return false, nil
@@ -142,28 +130,8 @@ func (c *Cursor) Next() (bool, error) {
 // returns true if there is a record false otherwise
 func (c *Cursor) Rewind() (bool, error) {
 	c.currentPage = c.rootPage
-	c.cellIndex = 0
+	c.cellIndex = -1
 	c.parentIndex = 0
 	c.parentPage = 0
 	return c.Next()
-}
-
-// readPage reads the current page from the wal or the database file.
-func (c *Cursor) readCurrentPage() (*MemPage, error) {
-	return c.pager.Read(c.currentPage)
-}
-
-func readCellPointer(cellIndex int, page *MemPage) (uint16, error) {
-	headerLen := 8
-	if page.Type == PageTypeInternal {
-		headerLen = 12
-	}
-
-	offset := headerLen
-	if page.PageNumber == 1 {
-		offset += 100
-	}
-
-	cellOffset := offset + cellIndex*2
-	return binary.BigEndian.Uint16(page.Data[cellOffset:]), nil
 }

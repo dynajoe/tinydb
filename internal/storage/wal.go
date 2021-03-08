@@ -143,7 +143,7 @@ func (w *WAL) writeHeader() error {
 func (w *WAL) makeWalFrame(p *MemPage, isCommit bool) ([]byte, error) {
 	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.pageSize)
 
-	binary.BigEndian.PutUint32(header[0:4], uint32(p.PageNumber))
+	binary.BigEndian.PutUint32(header[0:4], uint32(p.Number()))
 
 	if isCommit {
 		binary.BigEndian.PutUint32(header[4:8], 1)
@@ -163,7 +163,7 @@ func (w *WAL) makeWalFrame(p *MemPage, isCommit bool) ([]byte, error) {
 	pageBuffer := bytes.NewBuffer(header)
 	if _, err := pageBuffer.Write(header); err != nil {
 		return nil, err
-	} else if err := p.Write(pageBuffer); err != nil {
+	} else if _, err := p.WriteTo(pageBuffer); err != nil {
 		return nil, err
 	}
 

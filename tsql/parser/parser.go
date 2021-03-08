@@ -33,6 +33,27 @@ var topLevelStatements = []struct {
 			return s, s != nil, err
 		},
 	},
+	{
+		Name: "BEGIN",
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseBegin(scanner)
+			return s, s != nil, err
+		},
+	},
+	{
+		Name: "COMMIT",
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseCommit(scanner)
+			return s, s != nil, err
+		},
+	},
+	{
+		Name: "ROLLBACK",
+		Parse: func(scanner scan.TinyScanner) (ast.Statement, bool, error) {
+			s, err := parseRollback(scanner)
+			return s, s != nil, err
+		},
+	},
 }
 
 // ParseStatement parses a string of sql and produces a statement or parse failure.

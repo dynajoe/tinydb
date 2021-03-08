@@ -2,74 +2,16 @@ package storage
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
-	"io"
 )
 
 type BTreeTable struct {
 	rootPage int
 	pager    Pager
-	wal      *WAL
 }
 
-const InteriorNodeSize int = 8
-
-type InteriorNode struct {
-	LeftChild uint32
-	Key       uint32
-}
-
-func (r InteriorNode) ToBytes() ([]byte, error) {
-	buf := bytes.Buffer{}
-	if err := r.Write(&buf); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// Write writes an interior node to the specified writer
-func (r InteriorNode) Write(bs io.ByteWriter) error {
-	recordBuffer := bytes.Buffer{}
-
-	// Write the child page
-	if err := binary.Write(&recordBuffer, binary.BigEndian, r.LeftChild); err != nil {
-		return err
-	}
-
-	// Write the key
-	WriteVarint(&recordBuffer, uint64(r.Key))
-
-	// Write to the byte writer
-	// TODO: this seems ineffective.
-	for _, b := range recordBuffer.Bytes() {
-		if err := bs.WriteByte(b); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func ReadInteriorNode(data []byte) (InteriorNode, error) {
-	reader := bytes.NewReader(data)
-
-	var leftChild uint32
-	if err := binary.Read(reader, binary.BigEndian, &leftChild); err != nil {
-		return InteriorNode{}, err
-	}
-
-	key, _, err := ReadVarint(reader)
-	if err != nil {
-		return InteriorNode{}, err
-	}
-
-	return InteriorNode{LeftChild: leftChild, Key: uint32(key)}, nil
-}
-
-func NewBTreeTable(rootPage int, p Pager, wal *WAL) *BTreeTable {
+func NewBTreeTable(rootPage int, p Pager) *BTreeTable {
 	return &BTreeTable{
-		wal:      wal,
 		rootPage: rootPage,
 		pager:    p,
 	}
@@ -88,7 +30,7 @@ func (b *BTreeTable) Insert(r *Record) error {
 		return err
 	}
 
-	if root.Type == PageTypeLeaf {
+	if root.header.Type == PageTypeLeaf {
 		if !root.Fits(len(recordBytes)) {
 			parent, left, right, err := splitPage(b.pager, root)
 			if err != nil {
@@ -107,9 +49,9 @@ func (b *BTreeTable) Insert(r *Record) error {
 
 		// Save the page
 		return b.pager.Write(root)
-	} else if root.Type == PageTypeInternal {
+	} else if root.header.Type == PageTypeInternal {
 		// TODO: For now, just write to the right most page.
-		destPage, err := b.pager.Read(root.RightPage)
+		destPage, err := b.pager.Read(root.header.RightPage)
 		if err != nil {
 			return err
 		}
@@ -122,7 +64,7 @@ func (b *BTreeTable) Insert(r *Record) error {
 			}
 
 			internalNode := InteriorNode{
-				LeftChild: uint32(destPage.PageNumber),
+				LeftChild: uint32(destPage.Number()),
 				Key:       maxRowID,
 			}
 
@@ -131,11 +73,11 @@ func (b *BTreeTable) Insert(r *Record) error {
 			}
 
 			// Allocate a new page, update internal node right pointer.
-			destPage, err = b.pager.Allocate(PageTypeLeaf)
+			destPage, err = b.pager.Allocate(PageTypeLeaf) //Leaf
 			if err != nil {
 				return err
 			}
-			root.RightPage = destPage.PageNumber
+			root.header.RightPage = destPage.Number()
 
 			// Add link to the newly added page.
 			interiorCell, err := internalNode.ToBytes()
@@ -176,16 +118,17 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 		return nil, nil, nil, err
 	}
 
-	// Copy the data to the left
+	// Copy the page to the left
 	p.CopyTo(leftPage)
 
-	// Update the header to make the root an internal page
-	p.PageHeader = NewPageHeader(PageTypeInternal, uint16(len(p.Data)))
-	p.PageHeader.RightPage = rightPage.PageNumber
+	// Update the header to make the page an interior node
+	newHeader := NewPageHeader(PageTypeInternal, pager.PageSize())
+	newHeader.RightPage = rightPage.Number()
+	p.SetHeader(newHeader)
 
 	// Add a cell to the new internal page
 	cell := InteriorNode{
-		LeftChild: uint32(leftPage.PageNumber),
+		LeftChild: uint32(leftPage.Number()),
 		Key:       maxRowID,
 	}
 
@@ -199,17 +142,47 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 }
 
 func maxRowID(p *MemPage) (uint32, error) {
-	rows := RowReader(p)
+	recordIter := newRecordIter(p)
 	maxRowID := uint32(0)
-	for row := range rows {
-		if row.Err != nil {
-			return 0, row.Err
+
+	for recordIter.Next() {
+		if recordIter.Error() != nil {
+			return 0, recordIter.Error()
 		}
 
-		if row.Record.RowID > maxRowID {
-			maxRowID = row.Record.RowID
+		record := recordIter.Current()
+		if record.RowID > maxRowID {
+			maxRowID = record.RowID
 		}
 	}
-
 	return maxRowID, nil
+}
+
+type recorditerator struct {
+	n      int
+	record *Record
+	p      *MemPage
+	err    error
+}
+
+func newRecordIter(p *MemPage) *recorditerator {
+	return &recorditerator{p: p, n: 0}
+}
+
+func (i *recorditerator) Next() bool {
+	if i.n < i.p.CellCount() {
+		i.record, i.err = i.p.ReadRecord(i.n)
+		i.n++
+		return true
+	}
+
+	return false
+}
+
+func (i *recorditerator) Error() error {
+	return i.err
+}
+
+func (i *recorditerator) Current() *Record {
+	return i.record
 }
