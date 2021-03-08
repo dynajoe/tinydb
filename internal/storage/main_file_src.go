@@ -11,6 +11,7 @@ type DbFile struct {
 	mu         *sync.RWMutex
 	header     FileHeader
 	file       *os.File
+	path       string
 	pageSize   int
 	totalPages int
 }
@@ -42,6 +43,7 @@ func OpenDbFile(path string, pageSize int) (*DbFile, error) {
 		pageSize: pageSize,
 		header:   header,
 		file:     file,
+		path:     path,
 		// TODO: Should this be calculated from the file size?
 		totalPages: int(header.SizeInPages),
 		mu:         &sync.RWMutex{},
@@ -65,8 +67,12 @@ func (s *DbFile) Read(page int) ([]byte, error) {
 		return nil, err
 	}
 
+	readOffset := 0
+	if page == 1 {
+		readOffset = 100
+	}
 	data := make([]byte, s.pageSize)
-	_, err := s.file.Read(data)
+	_, err := s.file.Read(data[readOffset:])
 	if err != nil {
 		return nil, err
 	}

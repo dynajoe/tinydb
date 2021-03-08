@@ -62,17 +62,20 @@ func Start(config *Config) (*Engine, error) {
 	}
 
 	// Initialize WAL
-	wal, err := storage.OpenWAL(dbPath, config.PageSize)
+	wal, err := storage.OpenWAL(dbFile)
 	if err != nil {
 		return nil, err
 	}
+
+	// Use a WAL pager
+	walPager := pager.NewPager(wal, wal)
 
 	return &Engine{
 		config:    config,
 		log:       logger,
 		wal:       wal,
 		adminLock: &sync.Mutex{},
-		pagerPool: pager.NewPool(p),
+		pagerPool: pager.NewPool(walPager),
 	}, nil
 }
 
