@@ -48,27 +48,28 @@ type WAL struct {
 	salt1            uint32
 	salt2            uint32
 	pos              uint32
+	totalPages       int
 
-	mu *sync.RWMutex
+	pageCache map[int][]byte
+	mu        *sync.RWMutex
 }
 
 func OpenWAL(dbFile *DbFile) (*WAL, error) {
-	f, err := os.OpenFile(dbFile.path+"-wal", os.O_RDWR|os.O_CREATE, os.ModePerm)
+	f, err := os.OpenFile(dbFile.Path()+"-wal", os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
 
 	return &WAL{
-		file:   f,
-		dbFile: dbFile,
-		mu:     &sync.RWMutex{},
+		file:       f,
+		dbFile:     dbFile,
+		mu:         &sync.RWMutex{},
+		totalPages: dbFile.TotalPages(),
+		pageCache:  make(map[int][]byte),
 	}, nil
 }
 
-func (w *WAL) WriteLog(pageNumber int, data []byte, isCommit bool) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *WAL) writeLog(pageNumber int, data []byte, isCommit bool) error {
 	frame, err := w.makeWalFrame(pageNumber, data, isCommit)
 	if err != nil {
 		return err
@@ -76,10 +77,11 @@ func (w *WAL) WriteLog(pageNumber int, data []byte, isCommit bool) error {
 
 	if _, err := io.Copy(w.file, bytes.NewReader(frame)); err != nil {
 		return err
-	} else if err = w.file.Sync(); err != nil {
+	} else if err := w.file.Sync(); err != nil {
 		return err
 	}
 
+	w.pos += uint32(len(frame))
 	return nil
 }
 
@@ -88,17 +90,19 @@ func (w *WAL) Checkpoint() error {
 	defer w.mu.Unlock()
 
 	// Write all pages to db file
+	var pagesToWrite []Page
+	for pageNumber, data := range w.pageCache {
+		pagesToWrite = append(pagesToWrite, Page{PageNumber: pageNumber, Data: data})
+	}
+
+	if len(pagesToWrite) > 0 {
+		if err := w.dbFile.Write(pagesToWrite...); err != nil {
+			return err
+		}
+	}
 
 	// Checkpoints always start at the beginning of the file
-	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
-	// Start a new checkpoint
-	w.checkpointNumber++
-	if err := w.writeHeader(); err != nil {
-		return err
-	}
+	w.pos = 0
 
 	return nil
 }
@@ -112,7 +116,7 @@ func (w *WAL) writeHeader() error {
 
 	binary.BigEndian.PutUint32(header[0:4], WALMagicNumber)
 	binary.BigEndian.PutUint32(header[4:8], WALFileFormat)
-	binary.BigEndian.PutUint32(header[8:12], uint32(w.dbFile.pageSize))
+	binary.BigEndian.PutUint32(header[8:12], uint32(w.dbFile.PageSize()))
 	binary.BigEndian.PutUint32(header[12:16], w.checkpointNumber)
 	binary.BigEndian.PutUint32(header[16:20], w.salt1)
 	binary.BigEndian.PutUint32(header[20:24], w.salt2)
@@ -126,7 +130,7 @@ func (w *WAL) writeHeader() error {
 	binary.BigEndian.PutUint64(header[24:32], h.Sum64())
 
 	// Write the header to the start of the file & flush
-	if _, err := w.file.Seek(0, 0); err != nil {
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	} else if _, err := io.Copy(w.file, bytes.NewReader(header)); err != nil {
 		return err
@@ -141,7 +145,7 @@ func (w *WAL) writeHeader() error {
 }
 
 func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, error) {
-	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.dbFile.pageSize)
+	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.dbFile.PageSize())
 
 	binary.BigEndian.PutUint32(header[0:4], uint32(pageNumber))
 
@@ -170,20 +174,46 @@ func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, 
 	return pageBuffer.Bytes(), nil
 }
 
-func (s *WAL) PageSize() int {
-	return s.dbFile.PageSize()
+func (w *WAL) PageSize() int {
+	return w.dbFile.PageSize()
 }
 
-func (s *WAL) TotalPages() int {
-	return s.dbFile.TotalPages()
+func (w *WAL) TotalPages() int {
+	return w.totalPages
 }
 
-func (s *WAL) Read(page int) ([]byte, error) {
-	return s.dbFile.Read(page)
+func (w *WAL) Read(page int) ([]byte, error) {
+	if data, ok := w.pageCache[page]; ok {
+		return data, nil
+	}
+	return w.dbFile.Read(page)
 }
 
-func (s *WAL) Write(page int, data []byte) error {
-	return s.dbFile.Write(page, data)
+func (w *WAL) Write(pages ...Page) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// First page in the wal
+	if w.pos == 0 {
+		if err := w.writeHeader(); err != nil {
+			return err
+		}
+	}
+
+	// Write all pages out. The last page written is the commit page.
+	for i, p := range pages {
+		w.pageCache[p.PageNumber] = p.Data
+		if p.PageNumber > w.totalPages {
+			w.totalPages = p.PageNumber
+		}
+
+		lastPage := i == len(pages)-1
+		if err := w.writeLog(p.PageNumber, p.Data, lastPage); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 var _ PageReader = (*WAL)(nil)

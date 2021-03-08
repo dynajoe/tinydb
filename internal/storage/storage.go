@@ -12,6 +12,11 @@ type PageReader interface {
 	Read(page int) ([]byte, error)
 }
 
+type Page struct {
+	PageNumber int
+	Data       []byte
+}
+
 type PageWriter interface {
-	Write(page int, data []byte) error
+	Write(...Page) error
 }
