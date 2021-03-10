@@ -31,7 +31,13 @@ func (s *VMTestSuite) SetupTest() {
 	})
 	s.NoError(err)
 
-	db, err := sql.Open("sqlite3", s.tempDir+"tiny-test-sqlite.db")
+	useWAL := true
+	params := ""
+	if useWAL {
+		params = "?cache=shared&mode=rwc&_journal_mode=WAL"
+	}
+
+	db, err := sql.Open("sqlite3", s.tempDir+"tiny-test-sqlite.db"+params)
 	s.NoError(err)
 
 	s.engine = engine
@@ -209,7 +215,8 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 }
 
 func (s *VMTestSuite) AssertCommand(cmd string) {
-	//s.sqlite.Exec(cmd)
+	_, err := s.sqlite.Exec(cmd)
+	s.NoError(err)
 
 	results, err := s.conn.Exec(cmd)
 	s.NoError(err)

@@ -13,6 +13,7 @@ type InteriorNode struct {
 	Key       uint32
 }
 
+// ToBytes serializes an interior node to a byte slice
 func (r InteriorNode) ToBytes() ([]byte, error) {
 	buf := bytes.Buffer{}
 	if err := r.Write(&buf); err != nil {
@@ -44,6 +45,7 @@ func (r InteriorNode) Write(bs io.ByteWriter) error {
 	return nil
 }
 
+// ReadInteriorNode parses an interior node from a byte slice
 func ReadInteriorNode(data []byte) (*InteriorNode, error) {
 	reader := bytes.NewReader(data)
 
