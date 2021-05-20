@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 
 	"github.com/joeandaverde/tinydb/engine"
-	"gopkg.in/yaml.v2"
 )
 
 type ListenCommand struct {
@@ -58,7 +58,6 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 
 	ln, err := net.Listen("tcp", config.Addr)
-
 	if err != nil {
 		return 1
 	}
@@ -79,21 +78,26 @@ func (i *ListenCommand) Run(args []string) int {
 		default:
 		}
 
-		if err == nil {
-			go handleConnection(dbEngine, conn, i.ShutDownCh)
+		if err != nil {
+			continue
 		}
+
+		go handleConnection(dbEngine, conn, i.ShutDownCh)
 	}
 }
 
 func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan struct{}) {
 	defer func() {
+		conn.Close()
 		log.Infof("client disconnected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
-		defer conn.Close()
 	}()
 
-	db := dbEngine.Connect()
-	scanner := bufio.NewScanner(conn)
+	output := bufio.NewWriter(conn)
+	defer output.Flush()
 
+	db := dbEngine.Connect()
+
+	scanner := bufio.NewScanner(conn)
 	scanner.Split(onSemicolon)
 
 	for scanner.Scan() {
@@ -110,19 +114,30 @@ func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan 
 		}
 
 		result, err := db.Exec(text)
-		writer := bufio.NewWriter(conn)
-
 		if err != nil {
 			log.Error(err)
-			_, _ = writer.WriteString(err.Error())
+			_, _ = output.WriteString(err.Error())
 			continue
 		}
 
-		for r := range result.Results {
-			_, _ = writer.WriteString(fmt.Sprintf("%s\n", r.Data))
+		for {
+			var row *engine.Row
+			var ok bool
+
+			select {
+			case row, ok = <-result.Results:
+			case <-shutdownCh:
+				return
+			}
+
+			if !ok {
+				break
+			}
+
+			_, _ = output.WriteString(fmt.Sprintf("%s\n", row.Data))
 		}
 
-		writer.Flush()
+		output.Flush()
 	}
 
 	if err := scanner.Err(); err != nil {

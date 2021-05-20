@@ -5,8 +5,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/joeandaverde/tinydb/cmd/tinydb/command"
 	"github.com/mitchellh/cli"
+
+	"github.com/joeandaverde/tinydb/cmd/tinydb/command"
 )
 
 func main() {
@@ -39,16 +40,15 @@ func main() {
 }
 
 func makeShutdownCh() <-chan struct{} {
-	resultCh := make(chan struct{})
+	shutdownCh := make(chan struct{})
+	signalCh := make(chan os.Signal)
 
-	signalCh := make(chan os.Signal, 4)
 	signal.Notify(signalCh, os.Interrupt)
+
 	go func() {
-		for {
-			<-signalCh
-			resultCh <- struct{}{}
-		}
+		defer close(shutdownCh)
+		<-signalCh
 	}()
 
-	return resultCh
+	return shutdownCh
 }
