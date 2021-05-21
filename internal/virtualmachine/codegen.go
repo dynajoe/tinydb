@@ -673,18 +673,14 @@ func (g logicalGrouper) Visit(expr ast.Expression) ast.Expression {
 
 			leftExpr := g.Visit(e.Left)
 			if leftTerm, ok := leftExpr.(*ast.LogicalOperation); ok && leftTerm.Operator == e.Operator {
-				for _, t := range leftTerm.Terms {
-					result.Terms = append(result.Terms, t)
-				}
+				result.Terms = leftTerm.Terms
 			} else {
 				result.Terms = append(result.Terms, leftExpr)
 			}
 
 			rightExpr := g.Visit(e.Right)
 			if rightTerm, ok := rightExpr.(*ast.LogicalOperation); ok && rightTerm.Operator == e.Operator {
-				for _, t := range rightTerm.Terms {
-					result.Terms = append(result.Terms, t)
-				}
+				result.Terms = rightTerm.Terms
 			} else {
 				result.Terms = append(result.Terms, rightExpr)
 			}

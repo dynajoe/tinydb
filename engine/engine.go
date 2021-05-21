@@ -26,7 +26,7 @@ type Engine struct {
 	connectCount int
 	wal          *storage.WAL
 	adminLock    *sync.Mutex
-	pagerPool    *pager.PagerPool
+	pagerPool    *pager.Pool
 }
 
 // Start initializes a new TinyDb database engine
@@ -46,17 +46,9 @@ func Start(config *Config) (*Engine, error) {
 		return nil, err
 	}
 
-	// Pager abstraction over the database file
-	p := pager.NewPager(dbFile, dbFile)
-	p.SetMode(pager.ModeWrite)
-	defer p.SetMode(pager.ModeRead)
-
 	// Brand new database needs at least one page.
 	if dbFile.TotalPages() == 0 {
-		// Initialize the first page
-		if _, err := p.Allocate(pager.PageTypeLeaf); err != nil {
-			return nil, err
-		} else if err := p.Flush(); err != nil {
+		if err := pager.Initialize(dbFile); err != nil {
 			return nil, err
 		}
 	}
@@ -67,15 +59,12 @@ func Start(config *Config) (*Engine, error) {
 		return nil, err
 	}
 
-	// Use a WAL pager
-	walPager := pager.NewPager(wal, wal)
-
 	return &Engine{
 		config:    config,
 		log:       logger,
 		wal:       wal,
 		adminLock: &sync.Mutex{},
-		pagerPool: pager.NewPool(walPager),
+		pagerPool: pager.NewPool(pager.NewPager(wal)),
 	}, nil
 }
 

@@ -37,7 +37,7 @@ func (i *ListenCommand) Synopsis() string {
 func (i *ListenCommand) Run(args []string) int {
 	var configPath string
 
-	cmdFlags := flag.NewFlagSet("listen", flag.PanicOnError)
+	cmdFlags := flag.NewFlagSet("listen", flag.ExitOnError)
 	cmdFlags.StringVar(&configPath, "config", ".", "config file")
 
 	if err := cmdFlags.Parse(args); err != nil {

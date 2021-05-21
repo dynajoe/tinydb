@@ -2,9 +2,9 @@ package ast
 
 // ColumnDefinition represents a specification for a column in a table
 type ColumnDefinition struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	PrimaryKey bool   `json:"is_primary_key"`
+	Name       string
+	Type       string
+	PrimaryKey bool
 }
 
 // CreateTableStatement represents an instruction to create a table

@@ -7,13 +7,19 @@ import (
 	"sync"
 )
 
+type File interface {
+	PageReader
+	PageWriter
+}
+
 type DbFile struct {
-	mu         *sync.RWMutex
+	path       string
 	header     FileHeader
 	file       *os.File
-	path       string
 	pageSize   int
 	totalPages int
+
+	mu *sync.RWMutex
 }
 
 func OpenDbFile(path string, pageSize int) (*DbFile, error) {
@@ -35,7 +41,11 @@ func OpenDbFile(path string, pageSize int) (*DbFile, error) {
 			return nil, err
 		}
 
-		header = ParseFileHeader(headerBytes)
+		header, err = ParseFileHeader(headerBytes)
+		if err != nil {
+			return nil, err
+		}
+
 		pageSize = int(header.PageSize)
 	}
 
@@ -50,24 +60,24 @@ func OpenDbFile(path string, pageSize int) (*DbFile, error) {
 	}, nil
 }
 
-func (s *DbFile) Path() string {
-	return s.path
+func (f *DbFile) Path() string {
+	return f.path
 }
 
-func (s *DbFile) PageSize() int {
-	return s.pageSize
+func (f *DbFile) PageSize() int {
+	return f.pageSize
 }
 
-func (s *DbFile) TotalPages() int {
-	return s.totalPages
+func (f *DbFile) TotalPages() int {
+	return f.totalPages
 }
 
-func (s *DbFile) Read(page int) ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (f *DbFile) Read(page int) ([]byte, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
-	offset := s.pageOffset(page)
-	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
+	offset := f.pageOffset(page)
+	if _, err := f.file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}
 
@@ -75,8 +85,9 @@ func (s *DbFile) Read(page int) ([]byte, error) {
 	if page == 1 {
 		readOffset = 100
 	}
-	data := make([]byte, s.pageSize)
-	_, err := s.file.Read(data[readOffset:])
+
+	data := make([]byte, f.pageSize)
+	_, err := f.file.Read(data[readOffset:])
 	if err != nil {
 		return nil, err
 	}
@@ -84,21 +95,21 @@ func (s *DbFile) Read(page int) ([]byte, error) {
 	return data, nil
 }
 
-func (s *DbFile) Write(pages ...Page) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (f *DbFile) Write(pages ...Page) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	for _, page := range pages {
-		if page.PageNumber > s.totalPages+1 {
+		if page.PageNumber > f.totalPages+1 {
 			return errors.New("cannot grow the db file with a gap in pages")
 		}
 
-		if page.PageNumber > s.totalPages {
-			s.totalPages = page.PageNumber
+		if page.PageNumber > f.totalPages {
+			f.totalPages = page.PageNumber
 		}
 
-		pageOffset := s.pageOffset(page.PageNumber)
-		if _, err := s.file.Seek(pageOffset, io.SeekStart); err != nil {
+		pageOffset := f.pageOffset(page.PageNumber)
+		if _, err := f.file.Seek(pageOffset, io.SeekStart); err != nil {
 			return err
 		}
 
@@ -106,40 +117,44 @@ func (s *DbFile) Write(pages ...Page) error {
 		if page.PageNumber == 1 {
 			readOffset = 100
 		}
-		if _, err := s.file.Write(page.Data[readOffset:]); err != nil {
+
+		if _, err := f.file.Write(page.Data[readOffset:]); err != nil {
 			return err
 		}
 	}
 
-	if err := s.updateFileHeader(); err != nil {
+	if err := f.updateFileHeader(); err != nil {
 		return err
-	} else if err := s.file.Sync(); err != nil {
+	}
+
+	if err := f.file.Sync(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *DbFile) pageOffset(page int) int64 {
+func (f *DbFile) pageOffset(page int) int64 {
 	if page == 1 {
 		return 100
 	}
-	return int64(page-1) * int64(s.pageSize)
+	return int64(page-1) * int64(f.pageSize)
 }
 
-func (s *DbFile) updateFileHeader() error {
-	s.header.FileChangeCounter = s.header.FileChangeCounter + 1
-	s.header.SizeInPages = uint32(s.totalPages)
-	s.header.PageSize = uint16(s.pageSize)
+func (f *DbFile) updateFileHeader() error {
+	f.header.FileChangeCounter = f.header.FileChangeCounter + 1
+	f.header.SizeInPages = uint32(f.totalPages)
+	f.header.PageSize = uint16(f.pageSize)
 
-	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
+	if _, err := f.file.Seek(0, io.SeekStart); err != nil {
 		return err
-	} else if _, err := s.header.WriteTo(s.file); err != nil {
+	}
+
+	if _, err := f.header.WriteTo(f.file); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-var _ PageReader = (*DbFile)(nil)
-var _ PageWriter = (*DbFile)(nil)
+var _ File = (*DbFile)(nil)

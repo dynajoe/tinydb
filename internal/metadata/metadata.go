@@ -75,10 +75,15 @@ func tableDefinitionFromRecord(record *storage.Record) (*TableDefinition, error)
 	}
 	var cols []*ColumnDefinition
 	for i, c := range stmt.(*ast.CreateTableStatement).Columns {
+		sqlType, err := storage.SQLTypeFromString(c.Type)
+		if err != nil {
+			return nil, err
+		}
+
 		cols = append(cols, &ColumnDefinition{
 			Offset:     i,
 			Name:       c.Name,
-			Type:       storage.SQLTypeFromString(c.Type),
+			Type:       sqlType,
 			PrimaryKey: c.PrimaryKey,
 		})
 	}
@@ -95,7 +100,7 @@ func tableDefinitionFromRecord(record *storage.Record) (*TableDefinition, error)
 	case uint64:
 		rootPage = int(p)
 	default:
-		panic(fmt.Sprintf("unexpected root page type %v", reflect.TypeOf(record.Fields[3].Data)))
+		return nil, fmt.Errorf("unexpected root page type %v", reflect.TypeOf(record.Fields[3].Data))
 	}
 
 	return &TableDefinition{

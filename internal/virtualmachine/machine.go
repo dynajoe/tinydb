@@ -158,7 +158,6 @@ type Program struct {
 	ps           *PreparedStatement
 	regs         []*register
 	cursors      []*pager.Cursor
-	strings      []string
 	halted       bool
 	results      chan Output
 	err          string

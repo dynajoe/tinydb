@@ -33,6 +33,7 @@ func TestFileHeader_ReadHeader(t *testing.T) {
 	assert.NoError(err)
 
 	bs := buf.Bytes()
-	result := ParseFileHeader(bs)
+	result, err := ParseFileHeader(bs)
+	assert.NoError(err)
 	assert.Equal(h, result)
 }
