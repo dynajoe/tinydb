@@ -95,7 +95,7 @@ func (c *Connection) Exec(command string) (*ResultSet, error) {
 			if c.flags.Rollback {
 				p.Reset()
 				c.flags.Rollback = false
-			} else if p.Mode() == pager.ModeWrite {
+			} else {
 				if err := p.Flush(); err != nil {
 					rowChan <- &Row{
 						Error: err,

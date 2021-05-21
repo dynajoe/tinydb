@@ -124,7 +124,10 @@ func firstNonSpace(tokens []lexer.Token) lexer.Token {
 			return t
 		}
 	}
-	panic("there must be a non-whitespace token")
+
+	return lexer.Token{
+		Kind: lexer.TokenError,
+	}
 }
 
 func comparison() opParserFn {

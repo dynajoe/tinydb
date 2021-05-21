@@ -27,7 +27,7 @@ func text(r string) parserFn {
 	return func(scanner scan.TinyScanner) (bool, interface{}) {
 		next := scanner.Peek()
 
-		if strings.ToLower(r) == strings.ToLower(next.Text) {
+		if strings.EqualFold(r, next.Text) {
 			scanner.Next()
 			return true, r
 		}

@@ -45,7 +45,7 @@ func (c *TinyDBDriver) Open(dsn string) (driver.Conn, error) {
 		return nil, err
 	}
 
-	// TODO: Support more than 1 connection and
+	// TODO: Support more than 1 connection
 	engine, err := engine.Start(config)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (c *TinyDBDriver) Open(dsn string) (driver.Conn, error) {
 	}, nil
 }
 
-// Prepare prepares a tinydb query
+// Prepare prepares a query
 func (c *TinyDBConnection) Prepare(command string) (driver.Stmt, error) {
 	return &TinyDBStmt{
 		command: command,
@@ -67,7 +67,7 @@ func (c *TinyDBConnection) Prepare(command string) (driver.Stmt, error) {
 	}, nil
 }
 
-// Begin begins a tinydb transaction
+// Begin begins a transaction
 func (c *TinyDBConnection) Begin() (driver.Tx, error) {
 	_, err := c.exec("BEGIN")
 	if err != nil {
@@ -76,7 +76,7 @@ func (c *TinyDBConnection) Begin() (driver.Tx, error) {
 	return &TinyDBTx{c}, nil
 }
 
-// Close closes a tinydb connection
+// Close closes a connection
 func (c *TinyDBConnection) Close() error {
 	return nil
 }

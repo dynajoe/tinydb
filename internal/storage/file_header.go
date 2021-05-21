@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -76,9 +77,9 @@ func (h FileHeader) WriteTo(w io.Writer) (int64, error) {
 }
 
 // ParseFileHeader deserializes a FileHeader
-func ParseFileHeader(buf []byte) FileHeader {
+func ParseFileHeader(buf []byte) (FileHeader, error) {
 	if len(buf) != 100 {
-		panic("unexpected header length")
+		return FileHeader{}, fmt.Errorf("unexpected header length")
 	}
 
 	return FileHeader{
@@ -86,5 +87,5 @@ func ParseFileHeader(buf []byte) FileHeader {
 		FileChangeCounter: binary.BigEndian.Uint32(buf[24:28]),
 		SizeInPages:       binary.BigEndian.Uint32(buf[28:32]),
 		SchemaVersion:     binary.BigEndian.Uint32(buf[40:44]),
-	}
+	}, nil
 }

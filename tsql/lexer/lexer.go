@@ -196,7 +196,8 @@ func lexString(l *Lexer) stateFn {
 				l.emit(TokenString)
 				break
 			} else if current == eof {
-				panic("Non terminated string Token!")
+				l.errorf("non terminated string")
+				break
 			}
 
 			previous = current

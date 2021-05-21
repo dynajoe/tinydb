@@ -79,11 +79,10 @@ func (s *tinyScanner) Peek() lexer.Token {
 }
 
 func (s *tinyScanner) Backup() {
-	if s.position > 0 {
-		s.position--
-	} else {
-		panic("Attempting to back up before any tokens")
+	if s.position == 0 {
+		return
 	}
+	s.position--
 }
 
 func (s *tinyScanner) Pos() int {

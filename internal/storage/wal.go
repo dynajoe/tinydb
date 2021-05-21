@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"hash/crc64"
 	"io"
 	"math/rand"
@@ -217,11 +218,11 @@ func (w *WAL) Write(pages ...Page) error {
 }
 
 // checkSum only works for content which is an odd multiple of 8 bytes in length.
-func checkSum(b []byte, s0, s1 uint32, order binary.ByteOrder) (uint32, uint32) {
+func checkSum(b []byte, s0, s1 uint32, order binary.ByteOrder) (uint32, uint32, error) {
 	// Work in chunks of 8 bytes, x better be odd
 	x := len(b) >> 3
 	if x%2 == 0 {
-		panic("checkSum only works with odd multiples of 8 bytes")
+		return 0, 0, errors.New("checkSum only works with odd multiples of 8 bytes")
 	}
 
 	for i := 0; i < x; i++ {
@@ -229,7 +230,7 @@ func checkSum(b []byte, s0, s1 uint32, order binary.ByteOrder) (uint32, uint32) 
 		s0 += uint32(order.Uint32(b[offset:])) + s1
 		s1 += uint32(order.Uint32(b[offset+4:])) + s0
 	}
-	return s0, s1
+	return s0, s1, nil
 }
 
 var _ PageReader = (*WAL)(nil)

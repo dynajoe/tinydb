@@ -15,18 +15,20 @@ const (
 	Byte    = 1
 	Integer = 4
 	Text    = 28
+	Unknown = 999
 )
 
-func SQLTypeFromString(t string) SQLType {
+func SQLTypeFromString(t string) (SQLType, error) {
 	switch t {
 	case "text":
-		return Text
+		return Text, nil
 	case "int":
-		return Integer
+		return Integer, nil
 	case "byte":
-		return Byte
+		return Byte, nil
+	default:
+		return Unknown, fmt.Errorf("unexpected SQL string type")
 	}
-	panic("unexpected SQL string type")
 }
 
 // Field is a field in a database record
@@ -79,10 +81,10 @@ func (r Record) Write(bs io.ByteWriter) error {
 			fieldSize := uint64(2*len(f.Data.(string)) + 13)
 			_, err := WriteVarint(&colBuf, fieldSize)
 			if err != nil {
-				panic("unable to write varint")
+				return fmt.Errorf("unable to write varint")
 			}
 		default:
-			panic("Unknown sql type")
+			return fmt.Errorf("Unknown sql type")
 		}
 	}
 
@@ -200,6 +202,10 @@ func ReadRecord(r io.ByteReader) (*Record, error) {
 
 	var fields []*Field
 	recordHeaderLen, _, err := ReadVarint(r)
+	if err != nil {
+		return nil, err
+	}
+
 	// Subtract the # of bytes for the header len.
 	// Need to find out how many bytes were used for the varint
 	recordHeaderLen = recordHeaderLen - 1

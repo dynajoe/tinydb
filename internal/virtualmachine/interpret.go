@@ -45,51 +45,10 @@ func Evaluate(expression ast.Expression, ctx EvaluationContext) EvaluatedExpress
 	}
 }
 
-type columnLookup struct {
-	index  int
-	column *metadata.ColumnDefinition
-}
-
 type ExecutionEnvironment struct {
-	ColumnLookup map[string]columnLookup
-	Tables       map[string]*metadata.TableDefinition
-	Columns      []string
-	Pager        pager.Pager
-}
-
-func newExecutionEnvironment(p pager.Pager, tables []ast.TableAlias) (*ExecutionEnvironment, error) {
-	colLookup := make(map[string]columnLookup)
-	tableMetadata := make(map[string]*metadata.TableDefinition)
-	allMetadata := make([]*metadata.TableDefinition, len(tables))
-	i := 0
-	for _, tableAlias := range tables {
-		tableName := tableAlias.Name
-		metadata, err := metadata.GetTableDefinition(p, tableName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to locate table %s", tableName)
-		}
-		for _, c := range metadata.Columns {
-			lookupKey := c.Name
-			if tableAlias.Alias != "" {
-				lookupKey = tableAlias.Alias + "." + lookupKey
-			}
-
-			colLookup[lookupKey] = columnLookup{
-				index:  i,
-				column: c,
-			}
-			i++
-		}
-
-		tableMetadata[tableAlias.Alias] = metadata
-		allMetadata = append(allMetadata, metadata)
-	}
-
-	return &ExecutionEnvironment{
-		Tables:       tableMetadata,
-		ColumnLookup: colLookup,
-		Pager:        p,
-	}, nil
+	Tables  map[string]*metadata.TableDefinition
+	Columns []string
+	Pager   pager.Pager
 }
 
 func evaluateBinaryOperation(o *ast.BinaryOperation, ctx EvaluationContext) EvaluatedExpression {
