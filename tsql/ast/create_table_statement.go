@@ -18,3 +18,5 @@ type CreateTableStatement struct {
 func (*CreateTableStatement) iStatement() {}
 
 func (*CreateTableStatement) Mutates() bool { return true }
+
+func (*CreateTableStatement) ReturnsRows() bool { return false }
