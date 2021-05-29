@@ -93,6 +93,16 @@ type Row struct {
 	Data []interface{}
 }
 
+func NewConnection(logger *logrus.Logger, p pager.Pager, conn net.Conn) *Connection {
+	return &Connection{
+		log:           logger,
+		Conn:          conn,
+		flags:         &virtualmachine.Flags{AutoCommit: true},
+		pager:         p,
+		preparedCache: make(map[string]*virtualmachine.PreparedStatement),
+	}
+}
+
 // Handle processes a command on a connection. Only one command can be handled at a time per connection.
 func (c *Connection) Handle(ctx context.Context, cmd Command) error {
 	c.Lock()
@@ -130,7 +140,7 @@ func (c *Connection) Handle(ctx context.Context, cmd Command) error {
 		}
 
 		c.log.Debugf("executing prepared statement: %s", name)
-		if err := c.exec(ctx, stmt); err != nil {
+		if _, err := c.exec(ctx, stmt); err != nil {
 			return fmt.Errorf("error executing statement: %w", err)
 		}
 
@@ -169,7 +179,7 @@ func (c *Connection) Handle(ctx context.Context, cmd Command) error {
 		}
 
 		c.log.Debug("executing raw statement")
-		if err := c.exec(ctx, stmt); err != nil {
+		if _, err := c.exec(ctx, stmt); err != nil {
 			return fmt.Errorf("error executing statement: %w", err)
 		}
 
@@ -280,6 +290,7 @@ func (c *Connection) writeUint32(n uint32) error {
 	_, err := c.Write(c.scratch[:4])
 	return err
 }
+
 func (c *Connection) writeByte(b Response) error {
 	c.scratch[0] = byte(b)
 	_, err := c.Write(c.scratch[:1])
@@ -303,9 +314,9 @@ func (c *Connection) prepare(command string) (*virtualmachine.PreparedStatement,
 }
 
 // exec executes a prepared statement on the database connection
-func (c *Connection) exec(ctx context.Context, stmt *virtualmachine.PreparedStatement) error {
+func (c *Connection) exec(ctx context.Context, stmt *virtualmachine.PreparedStatement) (*virtualmachine.Program, error) {
 	if c.program != nil {
-		return fmt.Errorf("only one program can be running at a time")
+		return nil, fmt.Errorf("only one program can be running at a time")
 	}
 
 	c.program = virtualmachine.NewProgram(c.flags, c.pager, stmt)
@@ -329,7 +340,7 @@ func (c *Connection) exec(ctx context.Context, stmt *virtualmachine.PreparedStat
 		}
 	}()
 
-	return nil
+	return c.program, nil
 }
 
 // next returns the next result from the current running program or an error
@@ -359,6 +370,8 @@ func (c *Connection) complete(runError error) error {
 	defer func() {
 		c.program = nil
 	}()
+
+	c.log.Debugf("tx: %v", !c.flags.AutoCommit)
 
 	if runError != nil || c.flags.Rollback {
 		c.log.Debug("complete: rollback")

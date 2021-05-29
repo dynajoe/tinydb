@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"testing"
 
 	// For connection to sqlite
+	"github.com/joeandaverde/tinydb/internal/pager"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/stretchr/testify/suite"
@@ -41,7 +43,8 @@ func (s *VMTestSuite) SetupTest() {
 	s.NoError(err)
 
 	s.engine = engine
-	s.conn = s.engine.Connect()
+	s.conn = NewConnection(engine.log, pager.NewPager(engine.wal), nil)
+
 	s.sqlite = db
 }
 
@@ -57,11 +60,7 @@ func (s *VMTestSuite) TestSimple_Btree() {
 	}
 	s.AssertCommand("COMMIT")
 
-	results, err := s.conn.Exec("select * from foo where name = '999'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where name = '999'")
 
 	expectedResults := [][]interface{}{
 		{"999"},
@@ -76,11 +75,7 @@ func (s *VMTestSuite) TestSimple() {
 	s.AssertCommand("create table foo (name text)")
 	s.AssertCommand("insert into foo (name) values ('bar')")
 
-	results, err := s.conn.Exec("select * from foo")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo")
 
 	s.NotEmpty(rows)
 	s.Equal("bar", rows[0].Data[0].(string))
@@ -91,11 +86,7 @@ func (s *VMTestSuite) TestSimple_WithFilter() {
 	s.AssertCommand("insert into foo (name) values ('bar')")
 	s.AssertCommand("insert into foo (name) values ('baz')")
 
-	results, err := s.conn.Exec("select * from foo where name = 'bar'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where name = 'bar'")
 
 	expectedResults := [][]interface{}{{"bar"}}
 	s.Len(rows, len(expectedResults))
@@ -110,11 +101,7 @@ func (s *VMTestSuite) TestSimple_WithFilter2() {
 	s.AssertCommand("insert into foo (name) values ('bam')")
 	s.AssertCommand("insert into foo (name) values ('baz')")
 
-	results, err := s.conn.Exec("select * from foo where name = 'baz' OR name = 'bam'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where name = 'baz' OR name = 'bam'")
 
 	expectedResults := [][]interface{}{
 		{"bam"},
@@ -132,11 +119,7 @@ func (s *VMTestSuite) TestSimple_WithFilter3() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.conn.Exec("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where (name = '1' OR name = '2') OR name = '7' OR name = '4'")
 
 	expectedResults := [][]interface{}{
 		{"1"},
@@ -156,11 +139,7 @@ func (s *VMTestSuite) TestSimple_WithFilter4() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.conn.Exec("select * from foo where name = '1' AND name != '2'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where name = '1' AND name != '2'")
 
 	expectedResults := [][]interface{}{
 		{"1"},
@@ -177,11 +156,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAnd() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.conn.Exec("select * from foo where (name = '1' AND name != '2') OR name = '3'")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where (name = '1' AND name != '2') OR name = '3'")
 
 	expectedResults := [][]interface{}{
 		{"1"},
@@ -199,11 +174,7 @@ func (s *VMTestSuite) TestSimple_WithFilter_ComboOrAndGrouping() {
 		s.AssertCommand(fmt.Sprintf("insert into foo (name) values ('%d')", i))
 	}
 
-	results, err := s.conn.Exec("select * from foo where name = '1' AND (name != '2' OR name = '3')")
-	s.NoError(err)
-
-	rows, err := collectRows(results)
-	s.NoError(err)
+	rows := s.simpleQuery("select * from foo where name = '1' AND (name != '2' OR name = '3')")
 
 	expectedResults := [][]interface{}{
 		{"1"},
@@ -218,23 +189,25 @@ func (s *VMTestSuite) AssertCommand(cmd string) {
 	_, err := s.sqlite.Exec(cmd)
 	s.NoError(err)
 
-	results, err := s.conn.Exec(cmd)
-	s.NoError(err)
-	collectRows(results)
+	_ = s.simpleQuery(cmd)
 }
 
-func collectRows(rs *ResultSet) ([]*Row, error) {
+func (s *VMTestSuite) simpleQuery(query string) []*Row {
+	stmt, err := s.conn.prepare(query)
+	s.NoError(err)
+
+	program, err := s.conn.exec(context.Background(), stmt)
+	s.NoError(err)
+
 	var rows []*Row
 	for {
-		r := <-rs.Results
-		if r == nil {
-			break
+		select {
+		case <-s.conn.queryComplete:
+			return rows
+		case r, ok := <-program.Output():
+			if ok {
+				rows = append(rows, &Row{Data: r.Data})
+			}
 		}
-		if r.Error != nil {
-			return nil, r.Error
-		}
-		rows = append(rows, r)
 	}
-
-	return rows, nil
 }
