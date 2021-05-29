@@ -124,7 +124,7 @@ func splitPage(pager Pager, p *MemPage) (*MemPage, *MemPage, *MemPage, error) {
 	p.CopyTo(leftPage)
 
 	// Update the header to make the page an interior node
-	newHeader := NewPageHeader(PageTypeInternal, pager.PageSize())
+	newHeader := NewPageHeader(PageTypeInternal, len(p.data))
 	newHeader.RightPage = rightPage.Number()
 	p.SetHeader(newHeader)
 

@@ -1,14 +1,13 @@
 package command
 
 import (
-	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 
 	"github.com/joeandaverde/tinydb/engine"
@@ -37,7 +36,7 @@ func (i *ListenCommand) Synopsis() string {
 func (i *ListenCommand) Run(args []string) int {
 	var configPath string
 
-	cmdFlags := flag.NewFlagSet("listen", flag.PanicOnError)
+	cmdFlags := flag.NewFlagSet("listen", flag.ExitOnError)
 	cmdFlags.StringVar(&configPath, "config", ".", "config file")
 
 	if err := cmdFlags.Parse(args); err != nil {
@@ -51,7 +50,7 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 
 	configDecoder := yaml.NewDecoder(configFile)
-	config := &engine.Config{}
+	config := &engine.Config{MaxReceiveBuffer: 4096}
 	if err := configDecoder.Decode(config); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error parsing config file: %s", err.Error())
 		return 1
@@ -68,93 +67,16 @@ func (i *ListenCommand) Run(args []string) int {
 		return 1
 	}
 
-	for {
-		conn, err := ln.Accept()
-		log.Infof("client connected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
-
-		select {
-		case <-i.ShutDownCh:
-			return 0
-		default:
-		}
-
-		if err != nil {
-			continue
-		}
-
-		go handleConnection(dbEngine, conn, i.ShutDownCh)
-	}
-}
-
-func handleConnection(dbEngine *engine.Engine, conn net.Conn, shutdownCh <-chan struct{}) {
-	defer func() {
-		conn.Close()
-		log.Infof("client disconnected remote: %v, local: %v", conn.RemoteAddr(), conn.LocalAddr())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-i.ShutDownCh
+		cancel()
 	}()
 
-	output := bufio.NewWriter(conn)
-	defer output.Flush()
-
-	db := dbEngine.Connect()
-
-	scanner := bufio.NewScanner(conn)
-	scanner.Split(onSemicolon)
-
-	for scanner.Scan() {
-		select {
-		case <-shutdownCh:
-			return
-		default:
-		}
-
-		text := scanner.Text()
-
-		if len(strings.TrimSpace(text)) == 0 {
-			continue
-		}
-
-		result, err := db.Exec(text)
-		if err != nil {
-			log.Error(err)
-			_, _ = output.WriteString(err.Error())
-			continue
-		}
-
-		for {
-			var row *engine.Row
-			var ok bool
-
-			select {
-			case row, ok = <-result.Results:
-			case <-shutdownCh:
-				return
-			}
-
-			if !ok {
-				break
-			}
-
-			_, _ = output.WriteString(fmt.Sprintf("%s\n", row.Data))
-		}
-
-		output.Flush()
+	if err := engine.Serve(ctx, ln, dbEngine); err != nil {
+		return 1
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Errorf("Connection Error: %s", err.Error())
-	}
-}
-
-func onSemicolon(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	for i := 0; i < len(data); i++ {
-		if data[i] == ';' {
-			return i + 1, data[:i], nil
-		}
-	}
-
-	if atEOF {
-		return len(data), data, bufio.ErrFinalToken
-	}
-
-	return 0, nil, nil
+	return 0
 }

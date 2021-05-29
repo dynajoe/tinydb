@@ -1,49 +1,45 @@
 package pager
 
-import "sync"
+import (
+	"context"
+	"time"
+)
 
-type PagerPool struct {
-	cond    *sync.Cond
-	ownerID int
-	pager   Pager
+type Pool struct {
+	pager             Pager
+	writeSema         chan int
+	writeConnectionID int
 }
 
-func NewPool(p Pager) *PagerPool {
-	return &PagerPool{
-		pager: p,
-		cond:  sync.NewCond(&sync.Mutex{}),
+func NewPool(p Pager) *Pool {
+	return &Pool{
+		pager:             p,
+		writeSema:         make(chan int, 1),
+		writeConnectionID: 0,
 	}
 }
 
-func (p *PagerPool) Acquire(id int, mode Mode) (Pager, error) {
-	p.cond.L.Lock()
+// Acquire provides a pager with the following constraints:
+// any number of reader pagers that can only read data committed previously
+// only one writer pager, blocks reader pagers from being acquired
+// Blocks until the constraints are met and a pager can be acquired
+func (p *Pool) Acquire(connectionID int) (Pager, error) {
+	// block until writer is available or timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Already own the pager
-	if p.ownerID == id {
-		if mode == ModeWrite {
-			p.pager.SetMode(mode)
-		}
-		p.cond.L.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case p.writeSema <- connectionID:
+		p.writeConnectionID = connectionID
 		return p.pager, nil
 	}
-
-	for p.ownerID != 0 {
-		// Wait for owner to be 0
-		p.cond.Wait()
-	}
-
-	p.ownerID = id
-	p.cond.L.Unlock()
-	p.pager.SetMode(mode)
-	return p.pager, nil
 }
 
-func (p *PagerPool) Release(id int) {
-	p.cond.L.Lock()
-	if p.ownerID == id {
-		p.ownerID = 0
-		p.pager.SetMode(ModeRead)
-		p.cond.L.Unlock()
-		p.cond.Signal()
+func (p *Pool) Release(connectionID int) {
+	if connectionID == p.writeConnectionID {
+		p.writeConnectionID = 0
+		<-p.writeSema
 	}
 }

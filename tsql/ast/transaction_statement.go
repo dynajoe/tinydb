@@ -16,3 +16,7 @@ func (*RollbackStatement) iStatement() {}
 func (*BeginStatement) Mutates() bool    { return false }
 func (*CommitStatement) Mutates() bool   { return false }
 func (*RollbackStatement) Mutates() bool { return false }
+
+func (*BeginStatement) ReturnsRows() bool    { return false }
+func (*CommitStatement) ReturnsRows() bool   { return false }
+func (*RollbackStatement) ReturnsRows() bool { return false }

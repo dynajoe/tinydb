@@ -22,8 +22,9 @@ func TestChecksum(t *testing.T) {
 	var expectedSum1 uint32 = 0x68097CA9
 	var expectedSum2 uint32 = 0xC6F10CF6
 
-	s0, s1 := checkSum(header, 0, 0, binary.LittleEndian)
+	s0, s1, err := checkSum(header, 0, 0, binary.LittleEndian)
 
+	assert.NoError(err)
 	assert.Equal(expectedSum1, s0)
 	assert.Equal(expectedSum2, s1)
 }

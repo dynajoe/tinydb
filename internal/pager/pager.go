@@ -1,71 +1,56 @@
 package pager
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
-type Mode int
-
-const (
-	ModeNone Mode = iota
-	ModeRead
-	ModeWrite
-)
-
-// Pager manages database paging
-type Pager interface {
-	Mode() Mode
-	SetMode(Mode)
-	PageSize() int
+type PageReader interface {
 	Read(page int) (*MemPage, error)
+}
+
+type PageWriter interface {
 	Write(pages ...*MemPage) error
 	Allocate(PageType) (*MemPage, error)
 	Flush() error
 	Reset()
 }
 
+// Pager manages database paging
+type Pager interface {
+	PageReader
+	PageWriter
+}
+
 type pager struct {
-	mu     *sync.RWMutex
-	notify sync.Cond
-	mode   Mode
+	mu *sync.RWMutex
 
 	pageCount int
-	pageSize  int
 	pageCache map[int]*MemPage
 
-	src storage.PageReader
-	dst storage.PageWriter
+	file storage.File
 }
 
-func NewPager(src storage.PageReader, dst storage.PageWriter) Pager {
+func Initialize(file storage.File) error {
+	newPage := &MemPage{
+		header:     NewPageHeader(PageTypeLeaf, file.PageSize()),
+		pageNumber: 1,
+		data:       make([]byte, file.PageSize()),
+	}
+	newPage.updateHeaderData()
+
+	return file.Write(storage.Page{PageNumber: 1, Data: newPage.data})
+}
+
+func NewPager(file storage.File) Pager {
 	return &pager{
 		mu:        &sync.RWMutex{},
-		mode:      ModeRead,
-		pageCount: src.TotalPages(),
-		pageSize:  src.PageSize(),
+		pageCount: file.TotalPages(),
 		pageCache: make(map[int]*MemPage),
-		src:       src,
-		dst:       dst,
+		file:      file,
 	}
-}
-
-// PageSize returns the page size of the pager
-func (p *pager) PageSize() int {
-	return p.pageSize
-}
-
-// SetMode sets the mode of the pager to assist with protecting against unexpected modification
-func (p *pager) SetMode(mode Mode) {
-	p.mode = mode
-}
-
-// Mode returns the current state of the pager
-func (p *pager) Mode() Mode {
-	return p.mode
 }
 
 // Read reads a full page from cache or the page source
@@ -84,7 +69,7 @@ func (p *pager) Read(pageNumber int) (*MemPage, error) {
 	}
 
 	// Read raw page data from the source
-	data, err := p.src.Read(pageNumber)
+	data, err := p.file.Read(pageNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +88,6 @@ func (p *pager) Read(pageNumber int) (*MemPage, error) {
 
 // Write updates pages in the pager
 func (p *pager) Write(pages ...*MemPage) error {
-	if p.mode != ModeWrite {
-		return errors.New("write: cannot modify pager in read state")
-	}
-
 	for _, pg := range pages {
 		p.pageCache[pg.Number()] = pg
 	}
@@ -116,10 +97,6 @@ func (p *pager) Write(pages ...*MemPage) error {
 
 // Flush flushes all dirty pages to destination
 func (p *pager) Flush() error {
-	if p.mode != ModeWrite {
-		return errors.New("flush: cannot modify pager in read state")
-	}
-
 	var dirtyPages []storage.Page
 	var dirtyMemPages []*MemPage
 	for _, page := range p.pageCache {
@@ -132,10 +109,10 @@ func (p *pager) Flush() error {
 	}
 
 	if len(dirtyPages) > 0 {
-		if err := p.dst.Write(dirtyPages...); err != nil {
+		if err := p.file.Write(dirtyPages...); err != nil {
 			return err
 		}
-		p.pageCount = p.src.TotalPages()
+		p.pageCount = p.file.TotalPages()
 	}
 
 	for _, p := range dirtyMemPages {
@@ -147,7 +124,7 @@ func (p *pager) Flush() error {
 
 // Reset clears all dirty pages
 func (p *pager) Reset() {
-	p.pageCount = p.src.TotalPages()
+	p.pageCount = p.file.TotalPages()
 	for k, page := range p.pageCache {
 		if page.dirty {
 			delete(p.pageCache, k)
@@ -171,15 +148,11 @@ func (p *pager) Reset() {
 //    sql text
 // );
 func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
-	if p.mode != ModeWrite {
-		return nil, errors.New("allocate: cannot modify pager in read state")
-	}
-
 	p.pageCount = p.pageCount + 1
 	newPage := &MemPage{
-		header:     NewPageHeader(pageType, p.pageSize),
+		header:     NewPageHeader(pageType, p.file.PageSize()),
 		pageNumber: p.pageCount,
-		data:       make([]byte, p.pageSize),
+		data:       make([]byte, p.file.PageSize()),
 		dirty:      true,
 	}
 	newPage.updateHeaderData()

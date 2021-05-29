@@ -18,7 +18,6 @@ type Cursor struct {
 	Name string
 
 	typ      CursorType
-	start    int64
 	rootPage int
 
 	currentPage int
