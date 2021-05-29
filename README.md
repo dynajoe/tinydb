@@ -9,14 +9,14 @@ This project came to be as a learning exercise for digging into implementation d
 ### Capabilities
 
 * Go SQL Driver over net.Conn
-  * TCP wire protocol
+* TCP server
 * SQL Queries
   * Parsing
   * Transactions
   * Prepared statements
   * Raw
 * Virtual machine with simple instruction set and unlimited (in theory) registers
-* Binary Ffile format compatible with SQLite
+* BTree binary file format compatible with SQLite
 
 ### Future
 
