@@ -8,9 +8,19 @@ This project came to be as a learning exercise for digging into implementation d
 
 ### Capabilities
 
+* Go SQL Driver over net.Conn
+  * TCP wire protocol
+* SQL Queries
+  * Parsing
+  * Transactions
+  * Prepared statements
+  * Raw
+* Virtual machine with simple instruction set and unlimited (in theory) registers
+* Binary Ffile format compatible with SQLite
+
 ### Future
-Near term: Transactions, Write ahead log, indexes, delete
-Longer term: programmability similar to that of plpgsql or plv8. Optimized wire protocol.
+
+* Programmability similar to that of plpgsql or plv8.
 
 ## Running
 ### Configuration
