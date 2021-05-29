@@ -22,3 +22,5 @@ func (s *SelectStatement) String() string {
 func (*SelectStatement) iStatement() {}
 
 func (*SelectStatement) Mutates() bool { return false }
+
+func (*SelectStatement) ReturnsRows() bool { return true }

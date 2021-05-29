@@ -1,18 +1,10 @@
 package pager
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/joeandaverde/tinydb/internal/storage"
-)
-
-type Mode int
-
-const (
-	ModeRead  Mode = 1
-	ModeWrite Mode = 2
 )
 
 type PageReader interface {
@@ -33,8 +25,7 @@ type Pager interface {
 }
 
 type pager struct {
-	mu   *sync.RWMutex
-	mode Mode
+	mu *sync.RWMutex
 
 	pageCount int
 	pageCache map[int]*MemPage
@@ -56,16 +47,10 @@ func Initialize(file storage.File) error {
 func NewPager(file storage.File) Pager {
 	return &pager{
 		mu:        &sync.RWMutex{},
-		mode:      ModeRead,
 		pageCount: file.TotalPages(),
 		pageCache: make(map[int]*MemPage),
 		file:      file,
 	}
-}
-
-// Mode returns the current state of the pager
-func (p *pager) Mode() Mode {
-	return p.mode
 }
 
 // Read reads a full page from cache or the page source
@@ -103,10 +88,6 @@ func (p *pager) Read(pageNumber int) (*MemPage, error) {
 
 // Write updates pages in the pager
 func (p *pager) Write(pages ...*MemPage) error {
-	if p.mode != ModeWrite {
-		return errors.New("write: cannot modify pager in read state")
-	}
-
 	for _, pg := range pages {
 		p.pageCache[pg.Number()] = pg
 	}
@@ -116,10 +97,6 @@ func (p *pager) Write(pages ...*MemPage) error {
 
 // Flush flushes all dirty pages to destination
 func (p *pager) Flush() error {
-	if p.mode != ModeWrite {
-		return errors.New("flush: cannot modify pager in read state")
-	}
-
 	var dirtyPages []storage.Page
 	var dirtyMemPages []*MemPage
 	for _, page := range p.pageCache {
@@ -171,10 +148,6 @@ func (p *pager) Reset() {
 //    sql text
 // );
 func (p *pager) Allocate(pageType PageType) (*MemPage, error) {
-	if p.mode != ModeWrite {
-		return nil, errors.New("allocate: cannot modify pager in read state")
-	}
-
 	p.pageCount = p.pageCount + 1
 	newPage := &MemPage{
 		header:     NewPageHeader(pageType, p.file.PageSize()),

@@ -1,6 +1,7 @@
 package virtualmachine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -146,8 +147,7 @@ type Flags struct {
 }
 
 type Output struct {
-	Error error
-	Data  []interface{}
+	Data []interface{}
 }
 
 type Program struct {
@@ -185,32 +185,34 @@ func NewProgram(flags *Flags, p pager.Pager, ps *PreparedStatement) *Program {
 	}
 }
 
-func (p *Program) Run() {
-	go func() {
-		defer close(p.results)
-		for p.pc < len(p.instructions) {
-			nextPc := p.step()
-			if nextPc == -1 {
-				p.results <- Output{Error: errors.New(p.err)}
-				return
-			}
-			if p.halted {
-				return
-			}
-			if nextPc > 0 {
-				p.pc = nextPc
-				continue
-			}
-			p.pc = p.pc + 1
-		}
-	}()
+func (p *Program) String() string {
+	return fmt.Sprintf("flags:%+v\nstatement: %+v", p.flags, p.ps.Statement)
 }
 
-func (p *Program) Results() <-chan Output {
+func (p *Program) Run(ctx context.Context) error {
+	defer close(p.results)
+	for p.pc < len(p.instructions) {
+		nextPc := p.step(ctx)
+		if nextPc == -1 {
+			return errors.New(p.err)
+		}
+		if p.halted {
+			return nil
+		}
+		if nextPc > 0 {
+			p.pc = nextPc
+			continue
+		}
+		p.pc = p.pc + 1
+	}
+	return nil
+}
+
+func (p *Program) Output() <-chan Output {
 	return p.results
 }
 
-func (p *Program) step() int {
+func (p *Program) step(ctx context.Context) int {
 	i := p.instructions[p.pc]
 
 	switch i.Op {
@@ -366,7 +368,12 @@ func (p *Program) step() int {
 				result = append(result, nil)
 			}
 		}
-		p.results <- Output{Data: result}
+
+		select {
+		case <-ctx.Done():
+			p.halted = true
+		case p.results <- Output{Data: result}:
+		}
 	case OpCreateTable:
 		// Allocate a page for the new table
 		rootPage, err := p.pager.Allocate(pager.PageTypeLeaf)
