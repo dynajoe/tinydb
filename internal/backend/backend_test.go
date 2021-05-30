@@ -26,7 +26,10 @@ func (s *BackendTestSuite) SetupTest() {
 	tempDir, err := os.MkdirTemp(".tinydb-test", "backend-test-*")
 	s.NoError(err)
 
-	dbEngine, err := Start(&Config{
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	dbEngine, err := Start(logger, Config{
 		DataDir:  tempDir,
 		PageSize: 4096,
 	})
@@ -41,7 +44,7 @@ func (s *BackendTestSuite) SetupTest() {
 	db, err := sql.Open("sqlite3", path.Join(tempDir, "tiny-test-sqlite.db")+params)
 	s.NoError(err)
 
-	s.backend = NewBackend(logrus.New(), dbEngine.NewPager())
+	s.backend = NewBackend(logger, dbEngine.NewPager())
 
 	s.sqlite = db
 }

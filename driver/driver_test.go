@@ -31,13 +31,14 @@ func (s *DriverTestSuite) SetupTest() {
 		s.a.FailNow("unable to create temporary test db path", err)
 	}
 
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
 	ln := bufconn.Listen(1024)
 
-	engine, err := backend.Start(&backend.Config{
-		DataDir:          tempDir,
-		PageSize:         4096,
-		MaxReceiveBuffer: 4096,
-		LogLevel:         logrus.DebugLevel,
+	engine, err := backend.Start(logger, backend.Config{
+		DataDir:  tempDir,
+		PageSize: 4096,
 	})
 	if err != nil {
 		s.a.FailNow("unable to start test db engine", err)

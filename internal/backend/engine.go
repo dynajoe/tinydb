@@ -15,29 +15,23 @@ import (
 
 // Config describes the configuration for the database
 type Config struct {
-	DataDir          string       `yaml:"data_directory"`
-	PageSize         int          `yaml:"page_size"`
-	Addr             string       `yaml:"listen_address"`
-	MaxReceiveBuffer int          `yaml:"max_receive_buffer"`
-	LogLevel         logrus.Level `yaml:"log_level"`
+	DataDir  string
+	PageSize int
 }
 
 // Engine holds metadata and indexes about the database
 type Engine struct {
 	sync.RWMutex
 	log       *log.Logger
-	config    *Config
+	config    Config
 	wal       *storage.WAL
 	pagerPool *pager.Pool
 	txID      uint32
 }
 
 // Start initializes a new TinyDb database engine
-func Start(config *Config) (*Engine, error) {
-	logger := log.New()
-	logger.SetLevel(config.LogLevel)
-
-	logger.Infof("Starting database engine [DataDir: %s]", config.DataDir)
+func Start(log *logrus.Logger, config Config) (*Engine, error) {
+	log.Infof("Starting database engine [DataDir: %s]", config.DataDir)
 
 	if config.PageSize < 1024 {
 		return nil, errors.New("page size must be greater than or equal to 1024")
@@ -66,7 +60,7 @@ func Start(config *Config) (*Engine, error) {
 
 	return &Engine{
 		config:    config,
-		log:       logger,
+		log:       log,
 		wal:       wal,
 		pagerPool: pager.NewPool(pager.NewPager(wal)),
 	}, nil

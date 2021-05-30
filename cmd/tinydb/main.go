@@ -6,8 +6,6 @@ import (
 	"os/signal"
 
 	"github.com/mitchellh/cli"
-
-	"github.com/joeandaverde/tinydb/cmd/tinydb/command"
 )
 
 func main() {
@@ -18,7 +16,7 @@ func main() {
 
 	commands := map[string]cli.CommandFactory{
 		"listen": func() (cli.Command, error) {
-			return &command.ListenCommand{
+			return &ListenCommand{
 				ShutDownCh: makeShutdownCh(),
 			}, nil
 		},

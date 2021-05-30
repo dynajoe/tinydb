@@ -1,4 +1,4 @@
-package command
+package main
 
 import (
 	"flag"
@@ -13,6 +13,13 @@ import (
 
 	"github.com/joeandaverde/tinydb/internal/backend"
 )
+
+type ListenConfig struct {
+	Addr     string       `yaml:"addr"`
+	DataDir  string       `yaml:"data_directory"`
+	PageSize int          `yaml:"page_size"`
+	LogLevel logrus.Level `yaml:"log_level"`
+}
 
 type ListenCommand struct {
 	ShutDownCh <-chan struct{}
@@ -51,11 +58,14 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 
 	configDecoder := yaml.NewDecoder(configFile)
-	config := &backend.Config{MaxReceiveBuffer: 4096}
+	config := &ListenConfig{}
 	if err := configDecoder.Decode(config); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error parsing config file: %s", err.Error())
 		return 1
 	}
+
+	logger := logrus.New()
+	logger.SetLevel(config.LogLevel)
 
 	ln, err := net.Listen("tcp", config.Addr)
 	if err != nil {
@@ -63,13 +73,16 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 	defer ln.Close()
 
-	dbEngine, err := backend.Start(config)
+	dbEngine, err := backend.Start(logger, backend.Config{
+		DataDir:  config.DataDir,
+		PageSize: 4096,
+	})
 	if err != nil {
 		return 1
 	}
 
-	dbServer := server.NewServer(logrus.New(), server.Config{
-		MaxRecvSize: config.MaxReceiveBuffer,
+	dbServer := server.NewServer(logger, server.Config{
+		MaxRecvSize: 512,
 	})
 
 	if err := dbServer.Serve(ln, dbEngine); err != nil {
