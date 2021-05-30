@@ -1,16 +1,17 @@
 package command
 
 import (
-	"context"
 	"flag"
 	"fmt"
+	"github.com/joeandaverde/tinydb/internal/server"
+	"github.com/sirupsen/logrus"
 	"net"
 	"os"
 	"strings"
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/joeandaverde/tinydb/engine"
+	"github.com/joeandaverde/tinydb/internal/backend"
 )
 
 type ListenCommand struct {
@@ -50,7 +51,7 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 
 	configDecoder := yaml.NewDecoder(configFile)
-	config := &engine.Config{MaxReceiveBuffer: 4096}
+	config := &backend.Config{MaxReceiveBuffer: 4096}
 	if err := configDecoder.Decode(config); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error parsing config file: %s", err.Error())
 		return 1
@@ -62,19 +63,16 @@ func (i *ListenCommand) Run(args []string) int {
 	}
 	defer ln.Close()
 
-	dbEngine, err := engine.Start(config)
+	dbEngine, err := backend.Start(config)
 	if err != nil {
 		return 1
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		<-i.ShutDownCh
-		cancel()
-	}()
+	dbServer := server.NewServer(logrus.New(), server.Config{
+		MaxRecvSize: config.MaxReceiveBuffer,
+	})
 
-	if err := engine.Serve(ctx, ln, dbEngine); err != nil {
+	if err := dbServer.Serve(ln, dbEngine); err != nil {
 		return 1
 	}
 

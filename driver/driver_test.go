@@ -1,18 +1,19 @@
 package driver
 
 import (
-	"context"
-	"database/sql"
 	"io/ioutil"
 	"os"
 	"testing"
 
+	"database/sql"
 	"github.com/google/uuid"
-	"github.com/joeandaverde/tinydb/engine"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/joeandaverde/tinydb/internal/backend"
+	"github.com/joeandaverde/tinydb/internal/server"
 )
 
 type DriverTestSuite struct {
@@ -32,7 +33,7 @@ func (s *DriverTestSuite) SetupTest() {
 
 	ln := bufconn.Listen(1024)
 
-	server, err := engine.Start(&engine.Config{
+	engine, err := backend.Start(&backend.Config{
 		DataDir:          tempDir,
 		PageSize:         4096,
 		MaxReceiveBuffer: 4096,
@@ -43,8 +44,8 @@ func (s *DriverTestSuite) SetupTest() {
 	}
 
 	// start serving in memory
-	ctx, cancel := context.WithCancel(context.Background())
-	go engine.Serve(ctx, ln, server)
+	dbServer := server.NewServer(logrus.New(), server.Config{MaxRecvSize: 4096})
+	go dbServer.Serve(ln, engine)
 
 	// for testing we register a unique instance of a driver
 	s.driverName = uuid.New().String()
@@ -55,8 +56,8 @@ func (s *DriverTestSuite) SetupTest() {
 	})
 
 	s.cleanup = func() {
+		dbServer.Shutdown()
 		ln.Close()
-		cancel()
 	}
 }
 
