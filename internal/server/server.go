@@ -91,9 +91,9 @@ func (s *Server) Handle(conn net.Conn, engine *backend.Engine) {
 		// handle the command
 		if err := dbConn.Handle(context.Background(), Command{
 			Control: control,
-			Payload: dbConn.recvBuffer[:],
+			Payload: dbConn.recvBuffer[:payloadLen],
 		}); err != nil {
-			s.log.WithError(err).Error("error handling command")
+			s.log.WithError(err).Error("terminating connection: error handling command")
 			return
 		}
 	}

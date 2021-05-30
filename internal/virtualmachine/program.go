@@ -28,7 +28,7 @@ type Program struct {
 	err          string
 }
 
-func NewProgram(pid int, instructions []*Instruction) *Program {
+func NewProgram(pid int, stmt *PreparedStatement) *Program {
 	// TODO: Make this resizable
 	regs := make([]*register, 10)
 	for i := range regs {
@@ -42,7 +42,7 @@ func NewProgram(pid int, instructions []*Instruction) *Program {
 		pid:          pid,
 		pc:           0,
 		cursors:      make([]*pager.Cursor, 5),
-		instructions: instructions,
+		instructions: stmt.Instructions,
 		regs:         regs,
 		out:          make(chan Output),
 	}

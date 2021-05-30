@@ -2,8 +2,6 @@ package pager
 
 import (
 	"fmt"
-	"sync"
-
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
 
@@ -25,8 +23,6 @@ type Pager interface {
 }
 
 type pager struct {
-	mu *sync.RWMutex
-
 	pageCount int
 	pageCache map[int]*MemPage
 
@@ -46,7 +42,6 @@ func Initialize(file storage.File) error {
 
 func NewPager(file storage.File) Pager {
 	return &pager{
-		mu:        &sync.RWMutex{},
 		pageCount: file.TotalPages(),
 		pageCache: make(map[int]*MemPage),
 		file:      file,

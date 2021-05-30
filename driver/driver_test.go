@@ -1,9 +1,9 @@
 package driver
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"database/sql"
 	"github.com/google/uuid"
@@ -25,11 +25,10 @@ type DriverTestSuite struct {
 }
 
 func (s *DriverTestSuite) SetupTest() {
-	s.a = require.New(s.T())
-	tempDir, err := ioutil.TempDir(os.TempDir(), "tinydb")
-	if err != nil {
-		s.a.FailNow("unable to create temporary test db path", err)
-	}
+	s.NoError(os.MkdirAll(".tinydb-test", os.ModePerm))
+
+	tempDir, err := os.MkdirTemp(".tinydb-test", "driver-test-"+time.Now().String()+"*")
+	s.NoError(err)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
@@ -41,11 +40,11 @@ func (s *DriverTestSuite) SetupTest() {
 		PageSize: 4096,
 	})
 	if err != nil {
-		s.a.FailNow("unable to start test db engine", err)
+		s.FailNow("unable to start test db engine", err)
 	}
 
 	// start serving in memory
-	dbServer := server.NewServer(logrus.New(), server.Config{MaxRecvSize: 4096})
+	dbServer := server.NewServer(logger, server.Config{MaxRecvSize: 4096})
 	go dbServer.Serve(ln, engine)
 
 	// for testing we register a unique instance of a driver
@@ -68,101 +67,105 @@ func TestDriverTestSuite(t *testing.T) {
 
 func (s *DriverTestSuite) TestDriver_Exec() {
 	db, err := sql.Open(s.driverName, s.dsn)
-	s.a.NoError(err)
-	s.a.NotNil(db)
+	s.NoError(err)
+	s.NotNil(db)
 
 	res, err := db.Exec("CREATE TABLE foo (name text);")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
+	s.NotNil(res)
 
 	res, err = db.Exec("INSERT INTO foo (name) VALUES ('bar');")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
+	s.NotNil(res)
 
 	rows, err := db.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.a.NoError(err)
-	s.a.NotNil(rows)
+	s.NoError(err)
+	s.NotNil(rows)
 
 	var name string
 	for rows.Next() {
 		err = rows.Scan(&name)
-		s.a.NoError(err)
+		s.NoError(err)
 	}
 
-	s.a.Equal("bar", name)
+	s.Equal("bar", name)
 }
 
 func (s *DriverTestSuite) TestDriver_Transaction() {
 	db, err := sql.Open(s.driverName, s.dsn)
-	s.a.NoError(err)
-	s.a.NotNil(db)
+	s.NoError(err)
+	s.NotNil(db)
 
 	res, err := db.Exec("CREATE TABLE foo (name text);")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
+	s.NotNil(res)
 
 	tx, err := db.Begin()
-	s.a.NoError(err)
+	s.NoError(err)
 
 	res, err = tx.Exec("INSERT INTO foo (name) VALUES ('bar');")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
+	s.NotNil(res)
 
 	rows, err := tx.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.a.NoError(err)
-	s.a.NotNil(rows)
+	s.NoError(err)
+	s.NotNil(rows)
 
 	var name string
 	for rows.Next() {
 		err = rows.Scan(&name)
-		s.a.NoError(err)
+		s.NoError(err)
 	}
 
-	s.a.Equal("bar", name)
+	s.Equal("bar", name)
 
-	s.a.NoError(tx.Commit())
+	s.NoError(tx.Commit())
 
 	rows, err = db.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.a.NoError(err)
-	s.a.NotNil(rows)
+	s.NoError(err)
+	s.NotNil(rows)
 	var committedName string
 	for rows.Next() {
 		err = rows.Scan(&committedName)
-		s.a.NoError(err)
+		s.NoError(err)
 	}
-	s.a.Equal("bar", committedName)
+	s.Equal("bar", committedName)
 }
 
 func (s *DriverTestSuite) TestDriver_Transaction_Rollback() {
 	db, err := sql.Open(s.driverName, s.dsn)
-	s.a.NoError(err)
-	s.a.NotNil(db)
+	s.NoError(err)
+	s.NotNil(db)
 
 	res, err := db.Exec("CREATE TABLE foo (name text);")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
+	s.NotNil(res)
 
 	tx, err := db.Begin()
-	s.a.NoError(err)
-
-	res, err = tx.Exec("INSERT INTO foo (name) VALUES ('bar');")
-	s.a.NoError(err)
-	s.a.NotNil(res)
+	s.NoError(err)
 
 	rows, err := tx.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.a.NoError(err)
-	s.a.NotNil(rows)
+	s.NoError(err)
+	s.False(rows.Next())
+
+	res, err = tx.Exec("INSERT INTO foo (name) VALUES ('bar');")
+	s.NoError(err)
+	s.NotNil(res)
+
+	rows, err = tx.Query("SELECT name FROM foo WHERE name = 'bar';")
+	s.NoError(err)
+	s.NotNil(rows)
 
 	var name string
 	for rows.Next() {
 		err = rows.Scan(&name)
-		s.a.NoError(err)
+		s.NoError(err)
 	}
-	s.a.Equal("bar", name)
+	s.Equal("bar", name)
 
-	s.a.NoError(tx.Rollback())
+	s.NoError(tx.Rollback())
 
 	rows, err = db.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.a.NoError(err)
-	s.a.False(rows.Next())
+	s.NoError(err)
+	s.False(rows.Next())
 }

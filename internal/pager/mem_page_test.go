@@ -7,15 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func blankMemPage(pageType PageType) *MemPage {
-	p := &MemPage{
-		header:     NewPageHeader(pageType, 4096),
-		pageNumber: 2,
-		data:       make([]byte, 4096),
-	}
-	return p
-}
-
 func TestMemPage_AddCell_InteriorNode(t *testing.T) {
 	assert := require.New(t)
 	page := blankMemPage(PageTypeInternal)

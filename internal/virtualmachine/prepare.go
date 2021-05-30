@@ -10,6 +10,7 @@ import (
 
 type PreparedStatement struct {
 	Statement    ast.Statement
+	Tag          string
 	Columns      []string
 	Instructions []*Instruction
 }
@@ -22,11 +23,14 @@ func Prepare(stmt ast.Statement, pager pager.Pager) (*PreparedStatement, error) 
 
 	switch s := stmt.(type) {
 	case *ast.CreateTableStatement:
+		preparedStatement.Tag = "CREATE"
 		preparedStatement.Instructions = CreateTableInstructions(s)
 	case *ast.InsertStatement:
+		preparedStatement.Tag = "INSERT"
 		preparedStatement.Columns = s.Returning
 		preparedStatement.Instructions = InsertInstructions(pager, s)
 	case *ast.SelectStatement:
+		preparedStatement.Tag = "SELECT"
 		table, err := metadata.GetTableDefinition(pager, s.From[0].Name)
 		if err != nil {
 			return nil, err
@@ -37,10 +41,13 @@ func Prepare(stmt ast.Statement, pager pager.Pager) (*PreparedStatement, error) 
 		preparedStatement.Columns = s.Columns
 		preparedStatement.Instructions = SelectInstructions(tableLookup, s)
 	case *ast.BeginStatement:
+		preparedStatement.Tag = "BEGIN"
 		preparedStatement.Instructions = BeginInstructions(s)
 	case *ast.CommitStatement:
+		preparedStatement.Tag = "COMMIT"
 		preparedStatement.Instructions = CommitInstructions(s)
 	case *ast.RollbackStatement:
+		preparedStatement.Tag = "ROLLBACK"
 		preparedStatement.Instructions = RollbackInstructions(s)
 	default:
 		return nil, fmt.Errorf("unexpected statement type")

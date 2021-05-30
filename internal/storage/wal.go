@@ -185,7 +185,9 @@ func (w *WAL) TotalPages() int {
 
 func (w *WAL) Read(page int) ([]byte, error) {
 	if data, ok := w.pageCache[page]; ok {
-		return data, nil
+		dest := make([]byte, len(data))
+		copy(dest, data)
+		return dest, nil
 	}
 	return w.dbFile.Read(page)
 }
@@ -227,8 +229,8 @@ func checkSum(b []byte, s0, s1 uint32, order binary.ByteOrder) (uint32, uint32, 
 
 	for i := 0; i < x; i++ {
 		offset := i * 8
-		s0 += uint32(order.Uint32(b[offset:])) + s1
-		s1 += uint32(order.Uint32(b[offset+4:])) + s0
+		s0 += order.Uint32(b[offset:]) + s1
+		s1 += order.Uint32(b[offset+4:]) + s0
 	}
 	return s0, s1, nil
 }
