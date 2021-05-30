@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/joeandaverde/tinydb/internal/backend"
 	"github.com/sirupsen/logrus"
+	"io"
 	"net"
 )
 
@@ -56,55 +57,41 @@ func (s *Server) Shutdown() error {
 
 // Handle handles client connection
 func (s *Server) Handle(conn net.Conn, engine *backend.Engine) {
-	defer conn.Close()
 	s.log.Infof("connect: %+v", conn.RemoteAddr())
 
 	dbConn := NewConnection(s.log, engine.NewPager(), conn)
-
-	// 1 byte for control
-	// 4 bytes for payload length
-	controlHeader := [5]byte{}
-
-	// buffer for handling payloads
-	payloadBuffer := make([]byte, 0, s.config.MaxRecvSize)
+	defer dbConn.Close()
 
 	// TODO: handle errors gracefully rather than closing connection
 	for {
-		n, err := dbConn.Read(controlHeader[:])
+		// 1 byte for control
+		// 4 bytes for payload length
+		_, err := io.ReadFull(dbConn, dbConn.recvBuffer[:5])
 		if err != nil {
 			s.log.Error("error reading control header")
 			return
 		}
 
-		// not enough bytes read in control header
-		if n != len(controlHeader) {
-			s.log.Error("invalid control header length")
-			return
-		}
-
 		// read payload
-		payloadLen := binary.BigEndian.Uint32(controlHeader[1:])
-		if int(payloadLen) > s.config.MaxRecvSize {
+		control := Control(dbConn.recvBuffer[0])
+		payloadLen := binary.BigEndian.Uint32(dbConn.recvBuffer[1:])
+		if int(payloadLen) > len(dbConn.recvBuffer) {
 			s.log.Error("invalid payload size")
 			return
 		}
 
 		if payloadLen > 0 {
-			payloadRead, err := conn.Read(payloadBuffer[:payloadLen])
+			_, err := io.ReadFull(dbConn, dbConn.recvBuffer[:payloadLen])
 			if err != nil {
 				s.log.WithError(err).Error("error reading payload")
-				return
-			}
-			if payloadRead != int(payloadLen) {
-				s.log.Errorf("error reading full payload: expected %d got %d", payloadLen, payloadRead)
 				return
 			}
 		}
 
 		// handle the command
 		if err := dbConn.Handle(context.Background(), Command{
-			Control: Control(controlHeader[0]),
-			Payload: payloadBuffer[:payloadLen],
+			Control: control,
+			Payload: dbConn.recvBuffer[:],
 		}); err != nil {
 			s.log.WithError(err).Error("error handling command")
 			return

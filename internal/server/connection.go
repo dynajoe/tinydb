@@ -73,7 +73,8 @@ type Connection struct {
 	preparedCache map[string]*virtualmachine.PreparedStatement
 	proc          *backend2.ProgramInstance
 
-	scratch [512]byte
+	recvBuffer [512]byte
+	sendBuffer [512]byte
 }
 
 func NewConnection(logger *logrus.Logger, p pager.Pager, conn net.Conn) *Connection {
@@ -266,13 +267,13 @@ func (c *Connection) writeString(s string) error {
 }
 
 func (c *Connection) writeUint32(n uint32) error {
-	binary.BigEndian.PutUint32(c.scratch[:], n)
-	_, err := c.Write(c.scratch[:4])
+	binary.BigEndian.PutUint32(c.sendBuffer[:], n)
+	_, err := c.Write(c.sendBuffer[:4])
 	return err
 }
 
 func (c *Connection) writeByte(b Response) error {
-	c.scratch[0] = byte(b)
-	_, err := c.Write(c.scratch[:1])
+	c.sendBuffer[0] = byte(b)
+	_, err := c.Write(c.sendBuffer[:1])
 	return err
 }
