@@ -40,8 +40,8 @@ type ProgramInstance struct {
 	Pid    int
 	Tag    string
 	Output <-chan virtualmachine.Output
+	Exit   <-chan error
 
-	Exit    <-chan error
 	inTx    bool
 	program *virtualmachine.Program
 	pager   pager.Pager

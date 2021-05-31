@@ -144,15 +144,11 @@ func (s *DriverTestSuite) TestDriver_Transaction_Rollback() {
 	tx, err := db.Begin()
 	s.NoError(err)
 
-	rows, err := tx.Query("SELECT name FROM foo WHERE name = 'bar';")
-	s.NoError(err)
-	s.False(rows.Next())
-
 	res, err = tx.Exec("INSERT INTO foo (name) VALUES ('bar');")
 	s.NoError(err)
 	s.NotNil(res)
 
-	rows, err = tx.Query("SELECT name FROM foo WHERE name = 'bar';")
+	rows, err := tx.Query("SELECT name FROM foo WHERE name = 'bar';")
 	s.NoError(err)
 	s.NotNil(rows)
 

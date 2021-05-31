@@ -86,7 +86,7 @@ func (p *program) OpHalt() int {
 }
 
 func (p *program) MakeLabel() int {
-	labelRef := -len(p.labelRefs)
+	labelRef := -len(p.labelRefs) - 1
 	p.labelRefs[labelRef] = labelRef
 	return labelRef
 }

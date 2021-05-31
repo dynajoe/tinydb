@@ -70,19 +70,50 @@ func OpenWAL(dbFile *DbFile) (*WAL, error) {
 	}, nil
 }
 
-func (w *WAL) writeLog(pageNumber int, data []byte, isCommit bool) error {
-	frame, err := w.makeWalFrame(pageNumber, data, isCommit)
-	if err != nil {
-		return err
+func (w *WAL) TotalPages() int {
+	return w.totalPages
+}
+
+func (w *WAL) PageSize() int {
+	return w.dbFile.PageSize()
+}
+
+func (w *WAL) Read(page int) ([]byte, error) {
+	if data, ok := w.pageCache[page]; ok {
+		dest := make([]byte, len(data))
+		copy(dest, data)
+		return dest, nil
+	}
+	return w.dbFile.Read(page)
+}
+
+func (w *WAL) Write(pages ...Page) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// First page in the wal
+	if w.pos == 0 {
+		if err := w.writeHeader(); err != nil {
+			return err
+		}
 	}
 
-	if _, err := io.Copy(w.file, bytes.NewReader(frame)); err != nil {
-		return err
-	} else if err := w.file.Sync(); err != nil {
-		return err
+	// Write all pages out. The last page written is the commit page.
+	for i, p := range pages {
+		dest := make([]byte, len(p.Data))
+		copy(dest, p.Data)
+		w.pageCache[p.PageNumber] = dest
+
+		if p.PageNumber > w.totalPages {
+			w.totalPages = p.PageNumber
+		}
+
+		lastPage := i == len(pages)-1
+		if err := w.writeLog(p.PageNumber, dest, lastPage); err != nil {
+			return err
+		}
 	}
 
-	w.pos += uint32(len(frame))
 	return nil
 }
 
@@ -145,6 +176,22 @@ func (w *WAL) writeHeader() error {
 	return nil
 }
 
+func (w *WAL) writeLog(pageNumber int, data []byte, isCommit bool) error {
+	frame, err := w.makeWalFrame(pageNumber, data, isCommit)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(w.file, bytes.NewReader(frame)); err != nil {
+		return err
+	} else if err := w.file.Sync(); err != nil {
+		return err
+	}
+
+	w.pos += uint32(len(frame))
+	return nil
+}
+
 func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, error) {
 	header := make([]byte, WALFrameHeaderLen, WALFrameHeaderLen+w.dbFile.PageSize())
 
@@ -173,50 +220,6 @@ func (w *WAL) makeWalFrame(pageNumber int, data []byte, isCommit bool) ([]byte, 
 	}
 
 	return pageBuffer.Bytes(), nil
-}
-
-func (w *WAL) PageSize() int {
-	return w.dbFile.PageSize()
-}
-
-func (w *WAL) TotalPages() int {
-	return w.totalPages
-}
-
-func (w *WAL) Read(page int) ([]byte, error) {
-	if data, ok := w.pageCache[page]; ok {
-		dest := make([]byte, len(data))
-		copy(dest, data)
-		return dest, nil
-	}
-	return w.dbFile.Read(page)
-}
-
-func (w *WAL) Write(pages ...Page) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	// First page in the wal
-	if w.pos == 0 {
-		if err := w.writeHeader(); err != nil {
-			return err
-		}
-	}
-
-	// Write all pages out. The last page written is the commit page.
-	for i, p := range pages {
-		w.pageCache[p.PageNumber] = p.Data
-		if p.PageNumber > w.totalPages {
-			w.totalPages = p.PageNumber
-		}
-
-		lastPage := i == len(pages)-1
-		if err := w.writeLog(p.PageNumber, p.Data, lastPage); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // checkSum only works for content which is an odd multiple of 8 bytes in length.
