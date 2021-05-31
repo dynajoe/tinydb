@@ -6,11 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
+	"github.com/sirupsen/logrus"
 )
 
 // Config describes the configuration for the database
@@ -22,7 +20,7 @@ type Config struct {
 // Engine holds metadata and indexes about the database
 type Engine struct {
 	sync.RWMutex
-	log       *log.Logger
+	log       logrus.FieldLogger
 	config    Config
 	wal       *storage.WAL
 	pagerPool *pager.Pool
@@ -30,7 +28,7 @@ type Engine struct {
 }
 
 // Start initializes a new TinyDb database engine
-func Start(log *logrus.Logger, config Config) (*Engine, error) {
+func Start(log logrus.FieldLogger, config Config) (*Engine, error) {
 	log.Infof("Starting database engine [DataDir: %s]", config.DataDir)
 
 	if config.PageSize < 1024 {

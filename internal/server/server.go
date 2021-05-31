@@ -15,14 +15,14 @@ var ErrServerClosed = errors.New("tinydb: Server closed")
 type Server struct {
 	config     Config
 	shutdownCh chan struct{}
-	log        *logrus.Logger
+	log        logrus.FieldLogger
 }
 
 type Config struct {
 	MaxRecvSize int
 }
 
-func NewServer(log *logrus.Logger, config Config) *Server {
+func NewServer(log logrus.FieldLogger, config Config) *Server {
 	return &Server{
 		config:     config,
 		shutdownCh: make(chan struct{}),
@@ -33,17 +33,17 @@ func NewServer(log *logrus.Logger, config Config) *Server {
 func (s *Server) Serve(ln net.Listener, engine *backend.Engine) error {
 	for {
 		conn, err := ln.Accept()
+		if err != nil {
+			s.log.WithError(err).Error("error accepting new connection")
+			// TODO: prevent mass amounts of errors with backoff and or closing the server completely
+			continue
+		}
 
 		// stop accepting connection on shutdown
 		select {
 		case <-s.shutdownCh:
 			return ErrServerClosed
 		default:
-		}
-
-		if err != nil {
-			s.log.WithError(err).Error("error acceping new connection")
-			// TODO: prevent mass amounts of errors with backoff and or closing the server completely
 		}
 
 		// handle the connection

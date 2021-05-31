@@ -19,7 +19,7 @@ type Backend struct {
 	inTx       bool
 	failed     bool
 	proc       chan struct{}
-	log        *logrus.Logger
+	log        logrus.FieldLogger
 }
 
 // Row is a row in a result
@@ -47,7 +47,7 @@ type ProgramInstance struct {
 	pager   pager.Pager
 }
 
-func NewBackend(logger *logrus.Logger, p pager.Pager) *Backend {
+func NewBackend(logger logrus.FieldLogger, p pager.Pager) *Backend {
 	sema := make(chan struct{}, 1)
 	sema <- struct{}{}
 
@@ -86,8 +86,9 @@ func (b *Backend) Exec(ctx context.Context, stmt *virtualmachine.PreparedStateme
 	}
 
 	b.pidCounter++
-
 	pid := b.pidCounter
+
+	log := b.log.WithField("pid", pid)
 	program := virtualmachine.NewProgram(pid, stmt)
 
 	// ready program for execution
@@ -108,37 +109,75 @@ func (b *Backend) Exec(ctx context.Context, stmt *virtualmachine.PreparedStateme
 		// release processor reservation
 		defer func() { b.proc <- struct{}{} }()
 
-		b.log.Debugf("running program")
-
+		log.Debugf("running program")
 		c, err := run(ctx, instance)
-		if err != nil {
-			b.log.WithError(err).Error("program error")
-			b.failed = true
-			exitCh <- err
-			return
-		}
 
 		switch c {
+		case exitCodeError:
+			log.Debugf("program exit: error")
+			exitCh <- b.fatal(err)
+			return
 		case exitCodeBegin:
-			b.log.Debugf("program exit: begin")
-			b.begin()
+			log.Debugf("program exit: begin")
+			exitCh <- b.begin()
 			return
 		case exitCodeCommit:
-			b.log.Debugf("program exit: commit")
+			log.Debugf("program exit: commit")
 			exitCh <- b.commit()
 			return
 		case exitCodeRollback:
-			b.log.Debugf("program exit: rollback")
-			b.rollback()
+			log.Debugf("program exit: rollback")
+			exitCh <- b.rollback()
+			return
+		default:
+			log.Debugf("program exit: code %d", c)
+			exitCh <- b.fatal(fmt.Errorf("unknown program exit code: %d", c))
 			return
 		}
-
-		b.log.WithError(err).Errorf("program exit: unexpected exit code %d", c)
-		b.rollback()
-		exitCh <- fmt.Errorf("unexpected program exit code: %d", c)
 	}()
 
 	return instance, nil
+}
+
+func (b *Backend) fatal(err error) error {
+	log := b.log.WithField("pid", b.pidCounter)
+	b.inTx = false
+	b.failed = true
+	log.WithError(err).Error("fatal error")
+	b.pager.Reset()
+	return err
+}
+
+// rollback rolls back any changes made during the program execution
+func (b *Backend) rollback() error {
+	log := b.log.WithField("pid", b.pidCounter)
+
+	b.inTx = false
+	log.Debug("rollback")
+	b.pager.Reset()
+	return nil
+}
+
+// commit ensures modifications are persisted
+func (b *Backend) commit() error {
+	log := b.log.WithField("pid", b.pidCounter)
+
+	b.inTx = false
+	log.Debug("commit")
+	if err := b.pager.Flush(); err != nil {
+		log.WithError(err).Error("commit failed")
+		b.rollback()
+		return err
+	}
+	return nil
+}
+
+// begin makes no changes to the underlying pager and ensures the backend is in a transacted state
+func (b *Backend) begin() error {
+	log := b.log.WithField("pid", b.pidCounter)
+	b.inTx = true
+	log.Debug("in transaction")
+	return nil
 }
 
 // run runs a program and returns an exit code
@@ -160,28 +199,4 @@ func run(ctx context.Context, instance *ProgramInstance) (exitCode, error) {
 	}
 
 	return exitCodeBegin, nil
-}
-
-// rollback rolls back any changes made during the program execution
-func (b *Backend) rollback() {
-	b.inTx = false
-	b.log.Debug("rollback")
-	b.pager.Reset()
-}
-
-// commit ensures modifications are persisted
-func (b *Backend) commit() error {
-	b.inTx = false
-	b.log.Debug("commit")
-	if err := b.pager.Flush(); err != nil {
-		b.log.WithError(err).Error("commit failed")
-		b.rollback()
-		return err
-	}
-	return nil
-}
-
-// begin makes no changes to the underlying pager and ensures the backend is in a transacted state
-func (b *Backend) begin() {
-	b.inTx = true
 }

@@ -84,6 +84,14 @@ func (s *BackendTestSuite) TestSimple() {
 	s.Equal("bar", rows[0].Data[0].(string))
 }
 
+func (s *BackendTestSuite) TestSimple_NoData() {
+	s.assertQuery("create table foo (name text)")
+
+	rows, err := s.simpleQuery("select * from foo")
+	s.NoError(err)
+	s.Empty(rows)
+}
+
 func (s *BackendTestSuite) TestSimple_WithFilter() {
 	s.assertQuery("create table foo (name text)")
 	s.assertQuery("insert into foo (name) values ('bar')")
@@ -220,7 +228,10 @@ func (s *BackendTestSuite) simpleQuery(query string) ([]*Row, error) {
 			if ok {
 				rows = append(rows, &Row{Data: r.Data})
 			}
-		case <-proc.Exit:
+		case err := <-proc.Exit:
+			if err != nil {
+				return nil, err
+			}
 			return rows, nil
 		}
 	}

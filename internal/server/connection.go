@@ -67,7 +67,7 @@ type Connection struct {
 	sync.Mutex
 	net.Conn
 
-	log           *logrus.Logger
+	log           logrus.FieldLogger
 	pager         pager.Pager
 	backend       *backend2.Backend
 	preparedCache map[string]*virtualmachine.PreparedStatement
@@ -77,7 +77,7 @@ type Connection struct {
 	sendBuffer [512]byte
 }
 
-func NewConnection(logger *logrus.Logger, p pager.Pager, conn net.Conn) *Connection {
+func NewConnection(logger logrus.FieldLogger, p pager.Pager, conn net.Conn) *Connection {
 	return &Connection{
 		Conn:          conn,
 		log:           logger,
@@ -189,7 +189,10 @@ func (c *Connection) exec(ctx context.Context, name string, stmt *virtualmachine
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-proc.Exit:
+	case err := <-proc.Exit:
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := c.writeByte(ResponseCompleted); err != nil {
