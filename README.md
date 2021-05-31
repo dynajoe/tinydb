@@ -1,5 +1,7 @@
 # TinyDB
 
+![build](https://github.com/dynajoe/tinydb/actions/workflows/go.yml/badge.svg)
+
 ## Overview
 A relational database engine that implements a subset of ANSI SQL.
 
