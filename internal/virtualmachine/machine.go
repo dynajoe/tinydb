@@ -27,24 +27,24 @@ const (
 	OpInit
 	// Opens B-Tree Rooted at page n
 	// and stores cursor in c
-	// P1 - cursor (c)
-	// P2 - page number (n)
-	// P3 - col count (0 if opening index)
+	// 	P1 - cursor (c)
+	// 	P2 - page number (n)
+	// 	P3 - col count (0 if opening index)
 	OpOpenRead
 	// Opens B-Tree Rooted at page n
 	// and stores cursor in c
-	// P1 - cursor (c)
-	// P2 - page number register (n)
-	// P3 - col count (0 if opening index)
+	// 	P1 - cursor (c)
+	// 	P2 - page number register (n)
+	// 	P3 - col count (0 if opening index)
 	OpOpenWrite
 	OpClose
 	// Point to first entry in btree
-	// P1 - Cursor
-	// P2 - Jump address (if btree is empty)
+	// 	P1 - Cursor
+	// 	P2 - Jump address (if btree is empty)
 	OpRewind
 	// Read next cell at read cursor and go to address if more, otherwise, fallthrough.
-	// P1 - Cursor
-	// P2 - Jump Address
+	// 	P1 - Cursor
+	// 	P2 - Jump Address
 	OpNext
 	OpPrev
 	OpSeek
@@ -58,30 +58,30 @@ const (
 	// This instruction causes the VM to halt.
 	OpAutoCommit
 
-	// P1 - cursor
-	// P2 - column index (0 based)
-	// P3 - register for column value
+	// 	P1 - cursor
+	// 	P2 - column index (0 based)
+	// 	P3 - register for column value
 	OpColumn
 	OpKey
 	// Stores int in register
-	// P1 - the int
-	// P2 - the register
+	// 	P1 - the int
+	// 	P2 - the register
 	OpInteger
 	OpString
 	OpNull
-	// P1 - register start
-	// P2 - # cols
+	// 	P1 - register start
+	// 	P2 - # cols
 	OpResultRow
-	// P1 - register start
-	// P2 - count of cols
-	// P3 - store record in this register
+	// 	P1 - register start
+	// 	P2 - count of cols
+	// 	P3 - store record in this register
 	OpMakeRecord
-	// P1 - cursor for table to get rowid
-	// P2 - write rowid to this register
+	// 	P1 - cursor for table to get rowid
+	// 	P2 - write rowid to this register
 	OpRowID
-	// P1 - cursor
-	// P2 - register containing the record
-	// P3 - register with record key
+	// 	P1 - cursor
+	// 	P2 - register containing the record
+	// 	P3 - register with record key
 	OpInsert
 	// Take the logical AND of the values in registers P1 and P2 and write the result into register P3.
 	// If either P1 or P2 is 0 (false) then the result is 0 even if the other input is NULL. A NULL and true or two NULLs give a NULL output.
@@ -105,7 +105,7 @@ const (
 	OpIdxPKey
 	OpIdxInsert
 	// Create a new B-Tree
-	// P1 - register for root page
+	// 	P1 - register for root page
 	OpCreateTable
 	OpCreateIndex
 	OpCopy
@@ -177,15 +177,15 @@ func (o Op) String() string {
 	case OpInit:
 		return "OpInit"
 	case OpOpenRead:
-		return "OpOpenRead(cursor, page, cols, tableName)"
+		return "OpOpenRead(cur, pg, cols, tbl)"
 	case OpOpenWrite:
-		return "OpOpenWrite(cursor, page, cols, tableName)"
+		return "OpOpenWrite(cur, pg, cols, tbl)"
 	case OpClose:
 		return "OpClose"
 	case OpRewind:
-		return "OpRewind(cursor, jmp)"
+		return "OpRewind(cur, jmp)"
 	case OpNext:
-		return "OpNext(cursor, jmp)"
+		return "OpNext(cur, jmp)"
 	case OpPrev:
 		return "OpPrev"
 	case OpSeek:
@@ -199,7 +199,7 @@ func (o Op) String() string {
 	case OpSeekLe:
 		return "OpSeekLe"
 	case OpColumn:
-		return "OpColumn(cursor, col, reg)"
+		return "OpColumn(cur, col, reg)"
 	case OpKey:
 		return "OpKey"
 	case OpInteger:
@@ -213,9 +213,9 @@ func (o Op) String() string {
 	case OpMakeRecord:
 		return "OpMakeRecord(startreg, cols, reg)"
 	case OpRowID:
-		return "OpRowID(cursor, reg)"
+		return "OpRowID(cur, reg)"
 	case OpInsert:
-		return "OpInsert(cursor, reg, regkey)"
+		return "OpInsert(cur, reg, regkey)"
 	case OpEq:
 		return "OpEq"
 	case OpNe:

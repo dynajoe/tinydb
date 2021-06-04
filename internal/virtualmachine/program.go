@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/joeandaverde/tinydb/internal/pager"
 	"github.com/joeandaverde/tinydb/internal/storage"
 )
@@ -148,8 +149,7 @@ func (p *Program) step(ctx context.Context, flags *Flags, pgr pager.Pager) int {
 		}
 	case OpOpenRead:
 		cursor := i.P1
-		pageNo := p.reg(i.P2).data.(int)
-		// cols := instruction.Params[2]
+		pageNo := i.P2
 		f, err := pager.NewCursor(pgr, pager.CURSOR_READ, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open read error")
@@ -157,8 +157,7 @@ func (p *Program) step(ctx context.Context, flags *Flags, pgr pager.Pager) int {
 		p.cursors[cursor] = f
 	case OpOpenWrite:
 		cursorIndex := i.P1
-		pageNo := p.reg(i.P2).data.(int)
-		// cols := instruction.Params[2]
+		pageNo := i.P2
 		f, err := pager.NewCursor(pgr, pager.CURSOR_WRITE, pageNo, i.P4.(string))
 		if err != nil {
 			return p.error("open write error")

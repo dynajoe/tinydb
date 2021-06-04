@@ -11,6 +11,14 @@ import (
 	"github.com/joeandaverde/tinydb/tsql/parser"
 )
 
+// jumpOps are the ops that contain a jump destination in P2
+var jumpOps = map[Op]bool{
+	OpEq: true, OpNe: true,
+	OpLt: true, OpLe: true,
+	OpGt: true, OpGe: true,
+	OpRewind: true, OpNext: true,
+}
+
 var testTableDefs = map[string]*metadata.TableDefinition{
 	"foo": {
 		Name: "foo",
@@ -33,6 +41,28 @@ func TestSelectInstructions(t *testing.T) {
 	r.NotEmpty(instructions)
 	result := Instructions(instructions).String()
 	r.NotEmpty(result)
+
+	groupedByOp := groupInstructions(instructions)
+
+	// selecting all columns
+	r.Len(groupedByOp[OpColumn], len(testTableDefs["foo"].Columns))
+
+	// next picks up at the first column load
+	r.Equal(groupedByOp[OpNext][0].ixn.P2, groupedByOp[OpColumn][0].addr)
+
+	openBtree := groupedByOp[OpOpenRead]
+	r.Len(openBtree, 1)
+	r.Equal(openBtree[0].ixn, &Instruction{
+		Op: OpOpenRead,
+		P1: 0,
+		P2: testTableDefs["foo"].RootPage,
+		P3: len(testTableDefs["foo"].Columns),
+		P4: "foo",
+	})
+
+	r.Equal(OpHalt, instructions[len(instructions)-1].Op)
+
+	assertJumpsValid(instructions, t)
 }
 
 func TestSelectInstructions_SingleConditionWhereClause(t *testing.T) {
@@ -43,6 +73,8 @@ func TestSelectInstructions_SingleConditionWhereClause(t *testing.T) {
 
 	instructions := SelectInstructions(testTableDefs, stmt.(*ast.SelectStatement))
 	r.NotEmpty(instructions)
+
+	assertJumpsValid(instructions, t)
 }
 
 // +----+-----------+--+--+--+--------+--+-------+
@@ -83,6 +115,8 @@ func TestSelectInstructions2(t *testing.T) {
 
 	code := Instructions(instructions).String()
 	r.NotEmpty(code)
+
+	assertJumpsValid(instructions, t)
 }
 
 func TestSelectInstructions3(t *testing.T) {
@@ -102,4 +136,37 @@ func TestSelectInstructions3(t *testing.T) {
 
 	code := Instructions(instructions).String()
 	r.NotEmpty(code)
+
+	assertJumpsValid(instructions, t)
+}
+
+type groupItem struct {
+	addr int
+	ixn  *Instruction
+}
+
+func groupInstructions(instructions Instructions) map[Op][]groupItem {
+	grouped := make(map[Op][]groupItem)
+	for i, x := range instructions {
+		item := groupItem{ixn: x, addr: i}
+		if _, ok := grouped[x.Op]; ok {
+			grouped[x.Op] = append(grouped[x.Op], item)
+		} else {
+			grouped[x.Op] = []groupItem{item}
+		}
+	}
+	return grouped
+}
+
+func assertJumpsValid(instructions Instructions, t *testing.T) {
+	assert := require.New(t)
+	for i, x := range instructions {
+		if _, ok := jumpOps[x.Op]; !ok {
+			continue
+		}
+		jumpAddr := x.P2
+		assert.NotZero(jumpAddr)
+		assert.NotEqual(jumpAddr, i)
+		assert.Less(jumpAddr, len(instructions))
+	}
 }

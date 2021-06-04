@@ -193,13 +193,12 @@ const x = 0
 func CreateTableInstructions(stmt *ast.CreateTableStatement) []*Instruction {
 	p := initProgram()
 
-	// Place the master table page into register
-	pageReg := p.RegAlloc()
-	p.OpInt(pageReg, 1)
+	// The system table
+	rootPage := 1
 
-	// Open database file cursor at page in [Reg 0] and store cursor at [Cur 0] with 5 columns
+	// Open database file cursor and store cursor at [Cur 0] with 5 columns
 	openCursor := 0
-	p.Op4(OpOpenWrite, openCursor, pageReg, 5, ".schema")
+	p.Op4(OpOpenWrite, openCursor, rootPage, 5, ".schema")
 
 	// Master table entry [Reg 1-5]
 	masterTable1Reg := p.RegAlloc()
@@ -220,7 +219,7 @@ func CreateTableInstructions(stmt *ast.CreateTableStatement) []*Instruction {
 
 	// Make record from [Reg 1-5], store in [Reg 6]
 	recordReg := p.RegAlloc()
-	p.Op3(OpMakeRecord, masterTable1Reg, masterTable5Reg, recordReg)
+	p.Op3(OpMakeRecord, masterTable1Reg, 5, recordReg)
 
 	// Acquire a rowid for the new record, store in [Reg 7]
 	rowIDReg := p.RegAlloc()
@@ -289,9 +288,6 @@ func InsertInstructions(pager pager.Pager, stmt *ast.InsertStatement) []*Instruc
 
 	p := initProgram()
 
-	// Register to store root page of table
-	rootPageReg := p.RegAlloc()
-
 	// Register to store the rowid
 	rowIDReg := p.RegAlloc()
 
@@ -312,11 +308,8 @@ func InsertInstructions(pager pager.Pager, stmt *ast.InsertStatement) []*Instruc
 	// Table cursor
 	cursorIndex := 0
 
-	// Store the root page in register
-	p.OpInt(rootPageReg, table.RootPage)
-
 	// Open the root page for writing
-	p.Op4(OpOpenWrite, cursorIndex, rootPageReg, len(table.Columns), table.Name)
+	p.Op4(OpOpenWrite, cursorIndex, table.RootPage, len(table.Columns), table.Name)
 
 	// RowID for table
 	p.Op2(OpRowID, cursorIndex, rowIDReg)
@@ -447,9 +440,6 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 
 	p := initProgram()
 
-	// Register to store root page of table
-	rootPageReg := p.RegAlloc()
-
 	// Set up a read cursor for the root page of the table
 	readCursor := p.ReadCursor(table.RootPage)
 
@@ -462,11 +452,8 @@ func SelectInstructions(tableDefs map[string]*metadata.TableDefinition, stmt *as
 	recordLabel := p.MakeLabel()
 	evalLabel := p.MakeLabel()
 
-	// Load the root page for the table into a register
-	p.OpInt(rootPageReg, table.RootPage)
-
 	// Open table for reading
-	p.Op4(OpOpenRead, readCursor, rootPageReg, len(selectCols), table.Name)
+	p.Op4(OpOpenRead, readCursor, table.RootPage, len(selectCols), table.Name)
 
 	// Go to first entry in btree or go to halt
 	p.Op2(OpRewind, readCursor, haltLabel)
